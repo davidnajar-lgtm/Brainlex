@@ -22,7 +22,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  // URL gestionada en prisma.config.ts → .env → DATABASE_URL
 }
 
 // ============================================================================
@@ -86,6 +85,11 @@ model SociedadHolding {
   nif         String?
   descripcion String?
   activa      Boolean @default(true)
+
+  /// Meses de retención en cuarentena para esta Sociedad.
+  /// Por defecto: 48 meses (4 años fiscal — art. 30 CComercio, Ley 58/2003 GILF).
+  /// Ajustable por tenant: ej. 120 meses (10 años) para expedientes PBC/SEPBLAC.
+  quarantine_months Int @default(48)
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
