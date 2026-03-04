@@ -1,0 +1,251 @@
+// ============================================================================
+// schema.prisma — Brainlex / Lawork ERP
+// Micro-Spec 1.1: Esquema Core y Multi-tenancy Híbrida
+//
+// Roles aplicados:
+//   @Data-Architect  → modelo de Entidades único, lógica multitenant dinámica
+//   @Security-CISO   → ciclo de vida Cuarentena, AuditLog inmutable
+//
+// VETO LEGAL (@security_and_legal.md):
+//   NUNCA DELETE directo sobre un Sujeto con historial comercial o legal.
+//   Usar el flujo de Cuarentena: Auditoría → Bloqueo → Caducidad.
+//
+// REGLA DE VETO DE MIGRACIÓN:
+//   Este archivo NO puede ejecutarse contra la BD hasta que el
+//   Arquitecto Jefe dé autorización explícita.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  // URL gestionada en prisma.config.ts → .env → DATABASE_URL
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+/// Tipo de sujeto fiscal (persona física o jurídica).
+enum SujetoTipo {
+  PERSONA_FISICA
+  PERSONA_JURIDICA
+}
+
+/// Ciclo de vida del Sujeto — VETO LEGAL: no existe transición directa a DELETE.
+///   ACTIVE     → registro operativo normal
+///   QUARANTINE → baja lógica con retención legal (quarantine_reason OBLIGATORIO)
+///   FORGOTTEN  → crypto-shredding GDPR: PII eliminado, NIF/Razón Social conservados
+///                por obligación tributaria (art. 30 CComercio, Ley 58/2003 GILF)
+enum SujetoStatus {
+  ACTIVE
+  QUARANTINE
+  FORGOTTEN
+}
+
+/// Tipos de identificación fiscal aceptados.
+enum FiscalIdTipo {
+  NIF
+  CIF
+  NIE
+  DNI
+  PASAPORTE
+  VAT
+  TIE
+  REGISTRO_EXTRANJERO
+  CODIGO_SOPORTE
+  SIN_REGISTRO
+}
+
+/// Acciones registradas en el AuditLog inmutable.
+enum AuditAction {
+  CREATE
+  READ
+  UPDATE
+  QUARANTINE
+  RESTORE
+  FORGET
+}
+
+// ============================================================================
+// SociedadHolding  ←  TABLA MAESTRA DEL HOLDING
+//
+// Cada fila representa una empresa del grupo.
+// Escalabilidad REAL: añadir "Empresa C" = un INSERT en esta tabla.
+// Sin tocar el esquema, sin migraciones de tipo, sin enum que evolucionar.
+//
+// company_id es una clave de tenant dinámica (String). Ejemplos: "LX", "LW", "LC".
+// ============================================================================
+model SociedadHolding {
+  id          String  @id @default(cuid())
+  company_id  String  @unique /// Clave de tenant dinámica: "LX", "LW", "LC"...
+  nombre      String
+  nif         String?
+  descripcion String?
+  activa      Boolean @default(true)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relaciones descendentes
+  sujeto_links SujetoCompanyLink[]
+  expedientes  Expediente[]
+
+  @@map("sociedades_holding")
+}
+
+// ============================================================================
+// Sujetos  ←  TABLA GLOBAL (deliberadamente sin company_id)
+//
+// Unifica Contactos y Clientes para evitar duplicidades entre LX y LW.
+// Un mismo sujeto puede tener actividad en LX, en LW, o en ambas.
+//
+// La vinculación empresa ↔ sujeto se gestiona mediante SujetoCompanyLink.
+// El company_id vive en la tabla puente, NO aquí.
+// ============================================================================
+model Sujeto {
+  id   String     @id @default(cuid())
+  tipo SujetoTipo @default(PERSONA_FISICA)
+
+  // — Persona Física —
+  nombre    String?
+  apellido1 String?
+  apellido2 String?
+
+  // — Persona Jurídica —
+  razon_social String?
+
+  // — Identificación Fiscal —
+  fiscal_id      String?
+  fiscal_id_tipo FiscalIdTipo?
+
+  // — Datos de contacto —
+  email    String?
+  telefono String? /// Formato E.164, validado con libphonenumber-js en frontend
+
+  // — Roles (no excluyentes) —
+  es_cliente  Boolean @default(false)
+  es_contacto Boolean @default(true)
+
+  // — Ciclo de vida (VETO LEGAL) ————————————————————————————————————————————
+  // REGLA: si status = QUARANTINE → quarantine_reason OBLIGATORIO
+  //        La capa de servicio lanza 403 si se intenta DELETE con historial.
+  //        Si status = FORGOTTEN  → PII borrado, pero NIF/razon_social intactos.
+  status                SujetoStatus @default(ACTIVE)
+  quarantine_reason     String?   /// Requerido cuando status = QUARANTINE
+  quarantine_expires_at DateTime? /// Plazo asignado por Agente Legal (4 años fiscal / 10 PBC)
+  forgotten_at          DateTime? /// Timestamp del crypto-shredding (Derecho al Olvido GDPR)
+  // —————————————————————————————————————————————————————————————————————————
+
+  // — Metadatos extendidos (JSONB) —
+  metadata Json?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relaciones
+  company_links SujetoCompanyLink[]
+  expedientes   Expediente[]
+
+  @@index([fiscal_id, fiscal_id_tipo])
+  @@index([status])
+  @@map("sujetos")
+}
+
+// ============================================================================
+// SujetoCompanyLink  ←  TABLA PUENTE
+//
+// AQUÍ vive el company_id como separador lógico de tenant.
+// Un mismo Sujeto puede estar vinculado a "LX", a "LW", o a ambas.
+// @@unique garantiza que no existan filas duplicadas por sujeto + tenant.
+// ============================================================================
+model SujetoCompanyLink {
+  id         String  @id @default(cuid())
+  sujeto_id  String
+  company_id String  /// Tenant key dinámica: "LX", "LW", "LC"...
+  role       String? /// Ej: "Cliente activo", "Contrario", "Proveedor", "Notario"
+
+  created_at DateTime @default(now())
+
+  sujeto   Sujeto          @relation(fields: [sujeto_id], references: [id])
+  sociedad SociedadHolding @relation(fields: [company_id], references: [company_id])
+
+  @@unique([sujeto_id, company_id])
+  @@map("sujeto_company_links")
+}
+
+// ============================================================================
+// Expediente  ←  UNIDAD MÍNIMA DE TRABAJO Y RENTABILIDAD
+//
+// Lleva company_id como separador lógico de tenant (obligatorio).
+//
+// Semáforo Zero Leakage (@security_and_legal.md §3):
+//   Si fuera_de_cuota = true y propuesta_firmada_at IS NULL →
+//   la capa de servicio devuelve HTTP 412 Precondition Failed.
+// ============================================================================
+model Expediente {
+  id          String  @id @default(cuid())
+  company_id  String  /// Tenant key: "LX" | "LW" | cualquier futuro tenant
+  codigo      String  @unique
+  titulo      String
+  descripcion String?
+
+  // Semáforo Zero Leakage
+  fuera_de_cuota       Boolean   @default(false)
+  propuesta_firmada_at DateTime? /// Timestamp de firma electrónica aceptada por el cliente
+
+  status    String @default("ABIERTO")
+  sujeto_id String /// Cliente/Sujeto principal del expediente
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  sociedad SociedadHolding @relation(fields: [company_id], references: [company_id])
+  sujeto   Sujeto          @relation(fields: [sujeto_id], references: [id])
+
+  @@index([company_id])
+  @@index([status])
+  @@map("expedientes")
+}
+
+// ============================================================================
+// AuditLog  ←  REGISTRO INMUTABLE
+//
+// Captura: Quién · Qué · Cuándo · IP para cada mutación del sistema.
+//
+// DISEÑO DELIBERADO:
+//   - Sin @updatedAt (no se actualiza nunca)
+//   - Sin relaciones FK (table_name + record_id son refs polimórficas en texto)
+//     Razón: el AuditLog debe sobrevivir a borrados lógicos de otras tablas.
+//   - La capa de repositorio prohíbe DELETE sobre esta tabla (sin excepción).
+// ============================================================================
+model AuditLog {
+  id String @id @default(cuid())
+
+  // Qué entidad fue afectada (referencia polimórfica, sin FK)
+  table_name String
+  record_id  String
+  action     AuditAction
+
+  // Quién (null = acción de sistema / job automatizado)
+  actor_id    String?
+  actor_email String?
+  ip_address  String?
+  user_agent  String?
+
+  // Snapshot de datos (antes/después)
+  old_data Json?
+  new_data Json?
+  notes    String?
+
+  // Timestamp inmutable — sin @updatedAt
+  created_at DateTime @default(now())
+
+  @@index([table_name, record_id])
+  @@index([actor_id])
+  @@index([created_at])
+  @@map("audit_logs")
+}
