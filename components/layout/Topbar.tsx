@@ -1,3 +1,5 @@
+import WorldClock from "@/app/components/WorldClock";
+
 export default function Topbar({ title = "Panel de Control" }: { title?: string }) {
   return (
     <header className="flex h-14 flex-shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-900 px-6">
@@ -7,7 +9,12 @@ export default function Topbar({ title = "Panel de Control" }: { title?: string 
       </div>
 
       {/* Right side actions */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-4">
+        {/* World clock */}
+        <WorldClock />
+
+        <div className="h-5 w-px bg-zinc-800" />
+
         {/* Notification bell */}
         <button
           className="relative flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
