@@ -1,21 +1,41 @@
 // ============================================================================
-// lib/repositories/sujeto.repository.ts — Capa de Acceso a Datos
+// lib/repositories/contacto.repository.ts — Capa de Acceso a Datos
 //
 // Responsabilidad ÚNICA: operaciones atómicas contra la BD via Prisma.
 // CERO lógica de negocio aquí. Las decisiones las toma la capa de servicio.
 // ============================================================================
-import { AuditAction, Sujeto, SujetoStatus } from "@/app/generated/prisma";
+import {
+  AuditAction,
+  Contacto,
+  ContactoStatus,
+  ContactoTipo,
+  FiscalIdTipo,
+} from "@prisma/client";
+
 import { prisma } from "@/lib/prisma";
 
 // ─── DTOs internos del repositorio ──────────────────────────────────────────
 
-export type SujetoWithDependencyCounts = Sujeto & {
+export type ContactoWithDependencyCounts = Contacto & {
   _count: { expedientes: number };
 };
 
 export interface QuarantineData {
   quarantine_reason: string;
   quarantine_expires_at: Date;
+}
+
+/** Datos mínimos para crear un Contacto nuevo. */
+export interface CreateContactoData {
+  tipo: ContactoTipo;
+  nombre?: string | null;
+  apellido1?: string | null;
+  apellido2?: string | null;
+  razon_social?: string | null;
+  fiscal_id?: string | null;
+  fiscal_id_tipo?: FiscalIdTipo | null;
+  email?: string | null;
+  telefono?: string | null;
 }
 
 export interface AuditEntry {
@@ -33,15 +53,24 @@ export interface AuditEntry {
 
 // ─── Repositorio ─────────────────────────────────────────────────────────────
 
-export const sujetoRepository = {
+export const contactoRepository = {
   /**
-   * Busca un Sujeto por ID incluyendo conteo de expedientes asociados.
+   * Devuelve todos los Contactos ordenados por fecha de creación (más nuevo primero).
+   */
+  async findAll(): Promise<Contacto[]> {
+    return prisma.contacto.findMany({
+      orderBy: { created_at: "desc" },
+    });
+  },
+
+  /**
+   * Busca un Contacto por ID incluyendo conteo de expedientes asociados.
    * Usado por la capa de servicio para la Fase 1 (Auditoría de dependencias).
    */
   async findByIdWithCounts(
     id: string
-  ): Promise<SujetoWithDependencyCounts | null> {
-    return prisma.sujeto.findUnique({
+  ): Promise<ContactoWithDependencyCounts | null> {
+    return prisma.contacto.findUnique({
       where: { id },
       include: { _count: { select: { expedientes: true } } },
     });
@@ -52,20 +81,55 @@ export const sujetoRepository = {
    * y únicamente tras verificar cero dependencias legales.
    */
   async hardDelete(id: string): Promise<void> {
-    await prisma.sujeto.delete({ where: { id } });
+    await prisma.contacto.delete({ where: { id } });
   },
 
   /**
    * Transición atómica a QUARANTINE.
-   * quarantine_reason y quarantine_expires_at vienen siempre del servicio (ya validados).
    */
-  async setQuarantine(id: string, data: QuarantineData): Promise<Sujeto> {
-    return prisma.sujeto.update({
+  async setQuarantine(id: string, data: QuarantineData): Promise<Contacto> {
+    return prisma.contacto.update({
       where: { id },
       data: {
-        status: SujetoStatus.QUARANTINE,
+        status: ContactoStatus.QUARANTINE,
         quarantine_reason: data.quarantine_reason,
         quarantine_expires_at: data.quarantine_expires_at,
+      },
+    });
+  },
+
+  /**
+   * Garantiza que exista al menos una SociedadHolding en la BD.
+   * Si no hay ninguna (entorno de desarrollo), crea "Lexconomy Default".
+   * Devuelve el company_id de la sociedad activa.
+   */
+  async ensureDefaultSociedad(): Promise<string> {
+    const existing = await prisma.sociedadHolding.findFirst({
+      select: { company_id: true },
+    });
+    if (existing) return existing.company_id;
+
+    const created = await prisma.sociedadHolding.create({
+      data: {
+        company_id: "LX",
+        nombre: "Lexconomy Default",
+        quarantine_months: 48,
+      },
+    });
+    return created.company_id;
+  },
+
+  /**
+   * Crea un Contacto nuevo y lo vincula al tenant indicado.
+   * Operación atómica via nested create de Prisma.
+   */
+  async create(data: CreateContactoData, companyId: string): Promise<Contacto> {
+    return prisma.contacto.create({
+      data: {
+        ...data,
+        company_links: {
+          create: [{ company_id: companyId }],
+        },
       },
     });
   },
@@ -84,7 +148,6 @@ export const sujetoRepository = {
 export const sociedadRepository = {
   /**
    * Obtiene los meses de cuarentena configurados para un tenant concreto.
-   * Retorna null si el tenant no existe.
    */
   async getQuarantineMonths(
     company_id: string

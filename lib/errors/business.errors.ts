@@ -7,7 +7,7 @@
 
 /**
  * Lanzado cuando el Agente Legal bloquea una operación por dependencias legales.
- * El borrado físico de un Sujeto con historial comercial NUNCA está permitido.
+ * El borrado físico de un Contacto con historial comercial NUNCA está permitido.
  * → HTTP 403 Forbidden
  */
 export class LegalBlockError extends Error {
@@ -16,12 +16,11 @@ export class LegalBlockError extends Error {
 
   constructor(
     message: string,
-    public readonly sujetoId: string,
+    public readonly contactoId: string,
     public readonly dependencies: { expedientes: number }
   ) {
     super(message);
     this.name = "LegalBlockError";
-    // Necesario para instanceof correcto en entornos transpilados (ES5 target)
     Object.setPrototypeOf(this, LegalBlockError.prototype);
   }
 }
