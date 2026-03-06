@@ -58,6 +58,12 @@ enum FiscalIdTipo {
   SIN_REGISTRO
 }
 
+/// Tipo de teléfono para integraciones SMS/WhatsApp.
+enum TipoTelefono {
+  MOVIL
+  FIJO
+}
+
 /// Acciones registradas en el AuditLog inmutable.
 enum AuditAction {
   CREATE
@@ -118,15 +124,17 @@ model Contacto {
   apellido2 String?
 
   // — Persona Jurídica —
-  razon_social String?
+  razon_social  String?
+  tipo_sociedad String? /// S.L., S.A., S.L.U., etc. — requerido si tipo = PERSONA_JURIDICA
 
   // — Identificación Fiscal —
   fiscal_id      String?
   fiscal_id_tipo FiscalIdTipo?
 
   // — Datos de contacto —
-  email    String?
-  telefono String? /// Formato E.164, validado con libphonenumber-js en frontend
+  email          String?      @unique /// NULL no viola @unique (PostgreSQL) → varios contactos sin email son válidos
+  telefono       String?
+  tipo_telefono  TipoTelefono @default(MOVIL)
 
   // — Roles (no excluyentes) —
   es_cliente  Boolean @default(false)
@@ -141,6 +149,9 @@ model Contacto {
   quarantine_expires_at DateTime? /// Plazo asignado por Agente Legal
   forgotten_at          DateTime? /// Timestamp del crypto-shredding GDPR
 
+  // — Notas libres —
+  notas String?
+
   // — Metadatos extendidos (JSONB) —
   metadata Json?
 
@@ -151,7 +162,7 @@ model Contacto {
   company_links ContactoCompanyLink[]
   expedientes   Expediente[]
 
-  @@index([fiscal_id, fiscal_id_tipo])
+  @@unique([fiscal_id, fiscal_id_tipo]) /// Identifica única — NULL en fiscal_id excluido de la restricción
   @@index([status])
   @@map("contactos")
 }

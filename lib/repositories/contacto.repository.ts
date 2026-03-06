@@ -10,6 +10,8 @@ import {
   ContactoStatus,
   ContactoTipo,
   FiscalIdTipo,
+  TipoTelefono,
+  Prisma,
 } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
@@ -36,6 +38,9 @@ export interface CreateContactoData {
   fiscal_id_tipo?: FiscalIdTipo | null;
   email?: string | null;
   telefono?: string | null;
+  tipo_telefono?: TipoTelefono;
+  tipo_sociedad?: string | null;
+  notas?: string | null;
 }
 
 export interface AuditEntry {
@@ -46,8 +51,8 @@ export interface AuditEntry {
   actor_email?: string;
   ip_address?: string;
   user_agent?: string;
-  old_data?: Record<string, unknown>;
-  new_data?: Record<string, unknown>;
+  old_data?: Prisma.InputJsonValue;
+  new_data?: Prisma.InputJsonValue;
   notes?: string;
 }
 
@@ -55,11 +60,46 @@ export interface AuditEntry {
 
 export const contactoRepository = {
   /**
-   * Devuelve todos los Contactos ordenados por fecha de creación (más nuevo primero).
+   * Devuelve los Contactos ACTIVOS ordenados por fecha de creación (más nuevo primero).
+   * VETO LEGAL: los contactos en QUARANTINE o FORGOTTEN no son visibles por defecto.
    */
   async findAll(): Promise<Contacto[]> {
     return prisma.contacto.findMany({
+      where: { status: ContactoStatus.ACTIVE },
       orderBy: { created_at: "desc" },
+    });
+  },
+
+  /**
+   * Busca un Contacto por ID (cualquier estado).
+   */
+  async findById(id: string): Promise<Contacto | null> {
+    return prisma.contacto.findUnique({ where: { id } });
+  },
+
+  /**
+   * Actualiza los campos editables de un Contacto.
+   */
+  async update(id: string, data: Partial<CreateContactoData>): Promise<Contacto> {
+    return prisma.contacto.update({ where: { id }, data });
+  },
+
+  /**
+   * Soft delete: transición a QUARANTINE con razón y plazo estándar del tenant.
+   * NUNCA llames a prisma.contacto.delete desde esta capa.
+   */
+  async archive(id: string): Promise<Contacto> {
+    return prisma.contacto.update({
+      where: { id },
+      data: {
+        status: ContactoStatus.QUARANTINE,
+        quarantine_reason:
+          "Archivado manualmente desde el panel de administración.",
+        // Plazo legal estándar: 48 meses (art. 30 CComercio / Ley 58/2003)
+        quarantine_expires_at: new Date(
+          Date.now() + 48 * 30 * 24 * 60 * 60 * 1000
+        ),
+      },
     });
   },
 
@@ -77,10 +117,26 @@ export const contactoRepository = {
   },
 
   /**
-   * Borrado físico. SOLO la capa de servicio puede llamar esto,
-   * y únicamente tras verificar cero dependencias legales.
+   * ⚠️  MÉTODO RESTRINGIDO — USO EXCLUSIVO DPO / ADMINISTRADOR PRINCIPAL
+   *
+   * Ejecuta el borrado físico irreversible de un Contacto de la base de datos.
+   *
+   * ÚNICAS circunstancias legales de uso:
+   *   1. Ejercicio formal del Derecho al Olvido (RGPD Art. 17) solicitado por
+   *      el interesado y verificado por el Delegado de Protección de Datos (DPO).
+   *   2. Resolución judicial firme que ordene la eliminación del registro.
+   *   3. Constatación de que el Contacto NO tiene historial comercial ni legal
+   *      (cero expedientes, cero facturas, cero documentos asociados).
+   *
+   * PRERREQUISITOS obligatorios antes de llamar a este método:
+   *   - Autorización escrita del DPO o del administrador principal del sistema.
+   *   - Registro previo en el AuditLog con action=FORGET y notas de justificación.
+   *   - Verificación de cero dependencias via findByIdWithCounts().
+   *
+   * PROHIBIDO exponer este método en cualquier Server Action accesible desde la UI.
+   * Todo borrado iniciado desde la interfaz debe pasar por archive() → QUARANTINE.
    */
-  async hardDelete(id: string): Promise<void> {
+  async dangerouslyHardDeleteForGdprComplianceOnly(id: string): Promise<void> {
     await prisma.contacto.delete({ where: { id } });
   },
 

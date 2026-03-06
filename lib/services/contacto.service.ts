@@ -101,7 +101,7 @@ export const contactoService = {
         "Borrado físico autorizado (PURGE). Cero dependencias legales verificadas.",
     });
 
-    await contactoRepository.hardDelete(contactoId);
+    await contactoRepository.dangerouslyHardDeleteForGdprComplianceOnly(contactoId);
   },
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -142,7 +142,7 @@ export const contactoService = {
     const oldData = {
       status: contacto.status,
       quarantine_reason: contacto.quarantine_reason,
-      quarantine_expires_at: contacto.quarantine_expires_at,
+      quarantine_expires_at: contacto.quarantine_expires_at?.toISOString() ?? null,
     };
 
     const updated = await contactoRepository.setQuarantine(contactoId, {
@@ -158,7 +158,7 @@ export const contactoService = {
       actor_email: actor.actor_email,
       ip_address: actor.ip_address,
       user_agent: actor.user_agent,
-      old_data: oldData as Record<string, unknown>,
+      old_data: oldData,
       new_data: {
         status: updated.status,
         quarantine_reason: updated.quarantine_reason,

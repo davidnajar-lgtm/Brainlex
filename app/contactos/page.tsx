@@ -7,6 +7,7 @@
 
 import { getContactos } from "@/lib/actions/contactos.actions";
 import { Contacto, ContactoStatus, ContactoTipo } from "@prisma/client";
+import { DeleteButton } from "./DeleteButton";
 
 // ─── Helpers de presentación ──────────────────────────────────────────────────
 
@@ -126,6 +127,12 @@ function ContactosTable({ contactos }: { contactos: Contacto[] }) {
             <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
               NIF / CIF
             </th>
+            <th className="hidden px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-zinc-500 md:table-cell">
+              Email
+            </th>
+            <th className="hidden px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-zinc-500 md:table-cell">
+              Teléfono
+            </th>
             <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
               Tipo
             </th>
@@ -144,6 +151,12 @@ function ContactosTable({ contactos }: { contactos: Contacto[] }) {
               <td className="px-5 py-3.5 font-mono text-xs text-zinc-400">
                 {getFiscalId(c)}
               </td>
+              <td className="hidden px-5 py-3.5 text-xs text-zinc-400 md:table-cell">
+                {c.email ?? <span className="text-zinc-600">—</span>}
+              </td>
+              <td className="hidden px-5 py-3.5 font-mono text-xs text-zinc-400 md:table-cell">
+                {c.telefono ?? <span className="text-zinc-600">—</span>}
+              </td>
               <td className="px-5 py-3.5">
                 <TipoBadge tipo={c.tipo} />
               </td>
@@ -151,12 +164,26 @@ function ContactosTable({ contactos }: { contactos: Contacto[] }) {
                 <StatusBadge status={c.status} />
               </td>
               <td className="px-5 py-3.5 text-right">
-                <a
-                  href={`/contactos/${c.id}`}
-                  className="text-xs font-medium text-zinc-600 opacity-0 transition-opacity group-hover:opacity-100 hover:text-orange-400"
-                >
-                  Ver →
-                </a>
+                <div className="flex items-center justify-end gap-4 opacity-0 transition-opacity group-hover:opacity-100">
+                  <a
+                    href={`/contactos/${c.id}`}
+                    title="Ver Ficha"
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 transition-colors hover:text-orange-400"
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    Ver Ficha
+                  </a>
+                  <a
+                    href={`/contactos/${c.id}/editar`}
+                    className="text-xs font-medium text-zinc-500 transition-colors hover:text-orange-400"
+                  >
+                    Editar
+                  </a>
+                  <DeleteButton id={c.id} />
+                </div>
               </td>
             </tr>
           ))}

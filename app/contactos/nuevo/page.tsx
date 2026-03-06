@@ -4,27 +4,37 @@
 // app/contactos/nuevo/page.tsx — Formulario de Alta de Contacto
 //
 // @role: Agente de Frontend (Client Component)
-// @spec: Micro-Spec 2.3 — Formulario de Alta de Contactos
+// @spec: Micro-Spec 2.3 / 2.5 — Formulario de Alta + Validación Zod por campo
 // ============================================================================
 
 import { useTransition, useState } from "react";
 import Link from "next/link";
-
-import { createContacto, CreateContactoInput } from "@/lib/actions/contactos.actions";
-import { ContactoTipo, FiscalIdTipo } from "@prisma/client";
+import { CustomPhoneInput } from "@/app/contactos/CustomPhoneInput";
+import { SociedadCombobox } from "@/app/contactos/SociedadCombobox";
+import { createContacto } from "@/lib/actions/contactos.actions";
+import type {
+  CreateContactoInput,
+  ContactoFieldErrors,
+} from "@/lib/validations/contacto.schema";
+import { ContactoTipo, FiscalIdTipo, TipoTelefono } from "@prisma/client";
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
-const FISCAL_ID_TIPOS: { value: FiscalIdTipo; label: string }[] = [
-  { value: FiscalIdTipo.NIF, label: "NIF" },
-  { value: FiscalIdTipo.CIF, label: "CIF" },
-  { value: FiscalIdTipo.NIE, label: "NIE" },
-  { value: FiscalIdTipo.DNI, label: "DNI" },
-  { value: FiscalIdTipo.PASAPORTE, label: "Pasaporte" },
-  { value: FiscalIdTipo.VAT, label: "VAT (UE)" },
-  { value: FiscalIdTipo.TIE, label: "TIE" },
-  { value: FiscalIdTipo.REGISTRO_EXTRANJERO, label: "Registro Extranjero" },
+const FISCAL_ID_TIPOS_PF: { value: FiscalIdTipo; label: string }[] = [
+  { value: FiscalIdTipo.NIF,            label: "NIF" },
+  { value: FiscalIdTipo.DNI,            label: "DNI" },
+  { value: FiscalIdTipo.NIE,            label: "NIE" },
+  { value: FiscalIdTipo.PASAPORTE,      label: "Pasaporte" },
+  { value: FiscalIdTipo.TIE,            label: "TIE" },
+  { value: FiscalIdTipo.VAT,            label: "VAT (UE)" },
   { value: FiscalIdTipo.CODIGO_SOPORTE, label: "Código de Soporte" },
+  { value: FiscalIdTipo.SIN_REGISTRO,   label: "Sin Registro" },
+];
+
+const FISCAL_ID_TIPOS_PJ: { value: FiscalIdTipo; label: string }[] = [
+  { value: FiscalIdTipo.NIF,          label: "NIF" },
+  { value: FiscalIdTipo.CIF,          label: "CIF" },
+  { value: FiscalIdTipo.VAT,          label: "VAT (UE)" },
   { value: FiscalIdTipo.SIN_REGISTRO, label: "Sin Registro" },
 ];
 
@@ -33,10 +43,12 @@ const FISCAL_ID_TIPOS: { value: FiscalIdTipo; label: string }[] = [
 function FieldGroup({
   label,
   required,
+  error,
   children,
 }: {
   label: string;
   required?: boolean;
+  error?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -46,46 +58,80 @@ function FieldGroup({
         {required && <span className="ml-1 text-orange-500">*</span>}
       </label>
       {children}
+      {error && (
+        <p className="text-sm text-red-500">{error}</p>
+      )}
     </div>
   );
 }
 
-const inputClass =
-  "w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-colors focus:border-orange-500/60 focus:ring-1 focus:ring-orange-500/30";
+const inputBase =
+  "w-full rounded-lg border bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-colors";
+const inputNormal = `${inputBase} border-zinc-800 focus:border-orange-500/60 focus:ring-1 focus:ring-orange-500/30`;
+const inputError  = `${inputBase} border-red-600/60 focus:border-red-500 focus:ring-1 focus:ring-red-500/30`;
 
-const selectClass =
-  "w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 outline-none transition-colors focus:border-orange-500/60 focus:ring-1 focus:ring-orange-500/30";
+const selectBase =
+  "w-full rounded-lg border bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 outline-none transition-colors";
+const selectNormal = `${selectBase} border-zinc-800 focus:border-orange-500/60 focus:ring-1 focus:ring-orange-500/30`;
+const selectError  = `${selectBase} border-red-600/60 focus:border-red-500 focus:ring-1 focus:ring-red-500/30`;
 
 // ─── Página ───────────────────────────────────────────────────────────────────
 
 export default function NuevoContactoPage() {
   const [isPending, startTransition] = useTransition();
   const [tipo, setTipo] = useState<ContactoTipo>(ContactoTipo.PERSONA_FISICA);
+  const [resetKey, setResetKey] = useState(0);
+  const [fiscalIdTipo, setFiscalIdTipo] = useState<FiscalIdTipo>(FiscalIdTipo.NIF);
+  const [fiscalId, setFiscalId] = useState("");
+  const [telefono, setTelefono] = useState<string>("");
+  const [tipoTelefono, setTipoTelefono] = useState<TipoTelefono>(TipoTelefono.MOVIL);
+  const [tipoSociedad, setTipoSociedad] = useState<string>("");
+  const [notas, setNotas] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<ContactoFieldErrors>({});
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  function handleTipoChange(newTipo: ContactoTipo) {
+    setTipo(newTipo);
+    setFiscalIdTipo(FiscalIdTipo.NIF);
+    setFiscalId("");
+    setTipoSociedad("");
+    setResetKey((k) => k + 1);
+    setFieldErrors({});
+  }
+
+  function handleFiscalIdTipoChange(newTipo: FiscalIdTipo) {
+    setFiscalIdTipo(newTipo);
+    if (newTipo === FiscalIdTipo.SIN_REGISTRO) setFiscalId("");
+  }
+
+  function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    setFieldErrors({});
 
-    const form = e.currentTarget;
-    const fd = new FormData(form);
+    const fd = new FormData(e.currentTarget);
 
     const input: CreateContactoInput = {
       tipo,
-      nombre: fd.get("nombre") as string | undefined,
-      apellido1: fd.get("apellido1") as string | undefined,
-      apellido2: fd.get("apellido2") as string | undefined,
-      razon_social: fd.get("razon_social") as string | undefined,
-      fiscal_id_tipo: fd.get("fiscal_id_tipo") as FiscalIdTipo,
-      fiscal_id: fd.get("fiscal_id") as string,
-      email: fd.get("email") as string | undefined,
-      telefono: fd.get("telefono") as string | undefined,
+      // Usar || undefined: convierte null (input ausente del DOM) y "" a undefined
+      nombre:        (fd.get("nombre")        as string) || undefined,
+      apellido1:     (fd.get("apellido1")     as string) || undefined,
+      apellido2:     (fd.get("apellido2")     as string) || undefined,
+      razon_social:  (fd.get("razon_social")  as string) || undefined,
+      fiscal_id_tipo: fiscalIdTipo,
+      fiscal_id:     fiscalId,
+      email:         (fd.get("email")         as string) || undefined,
+      telefono:      telefono || undefined,
+      tipo_telefono: tipoTelefono,
+      tipo_sociedad: tipoSociedad || undefined,
+      notas:         notas || undefined,
     };
 
     startTransition(async () => {
       const result = await createContacto(input);
       if (result && !result.ok) {
         setError(result.error);
+        if (result.fieldErrors) setFieldErrors(result.fieldErrors);
       }
     });
   }
@@ -109,7 +155,7 @@ export default function NuevoContactoPage() {
         </p>
       </div>
 
-      {/* Error banner */}
+      {/* Banner de error global */}
       {error && (
         <div className="flex items-start gap-3 rounded-lg border border-red-900/40 bg-red-950/30 px-4 py-3 text-sm text-red-400">
           <svg
@@ -144,7 +190,7 @@ export default function NuevoContactoPage() {
               <button
                 key={opt.value}
                 type="button"
-                onClick={() => setTipo(opt.value)}
+                onClick={() => handleTipoChange(opt.value)}
                 className={`rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${
                   tipo === opt.value
                     ? "border-orange-500/50 bg-orange-500/10 text-orange-400"
@@ -159,51 +205,67 @@ export default function NuevoContactoPage() {
 
         {/* ── Campos según tipo ── */}
         {tipo === ContactoTipo.PERSONA_FISICA ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <FieldGroup label="Nombre" required>
+          <div key={`pf-${resetKey}`} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <FieldGroup label="Nombre" required error={fieldErrors.nombre}>
               <input
                 name="nombre"
                 type="text"
-                required
                 placeholder="María"
-                className={inputClass}
+                className={fieldErrors.nombre ? inputError : inputNormal}
               />
             </FieldGroup>
-            <FieldGroup label="Primer apellido" required>
+            <FieldGroup label="Primer apellido" error={fieldErrors.apellido1}>
               <input
                 name="apellido1"
                 type="text"
-                required
                 placeholder="García"
-                className={inputClass}
+                className={fieldErrors.apellido1 ? inputError : inputNormal}
               />
             </FieldGroup>
-            <FieldGroup label="Segundo apellido">
+            <FieldGroup label="Segundo apellido" error={fieldErrors.apellido2}>
               <input
                 name="apellido2"
                 type="text"
                 placeholder="López"
-                className={inputClass}
+                className={fieldErrors.apellido2 ? inputError : inputNormal}
               />
             </FieldGroup>
           </div>
         ) : (
-          <FieldGroup label="Razón Social" required>
-            <input
-              name="razon_social"
-              type="text"
-              required
-              placeholder="Empresa S.L."
-              className={inputClass}
-            />
-          </FieldGroup>
+          <div key={`pj-${resetKey}`} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="sm:col-span-2">
+              <FieldGroup label="Razón Social" required error={fieldErrors.razon_social}>
+                <input
+                  name="razon_social"
+                  type="text"
+                  placeholder="Empresa S.L."
+                  className={fieldErrors.razon_social ? inputError : inputNormal}
+                />
+              </FieldGroup>
+            </div>
+            <FieldGroup label="Tipo de Sociedad" required error={fieldErrors.tipo_sociedad}>
+              <SociedadCombobox
+                value={tipoSociedad}
+                onChange={setTipoSociedad}
+                error={fieldErrors.tipo_sociedad}
+              />
+            </FieldGroup>
+          </div>
         )}
 
         {/* ── Identificación Fiscal ── */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <FieldGroup label="Tipo de ID Fiscal" required>
-            <select name="fiscal_id_tipo" required className={selectClass}>
-              {FISCAL_ID_TIPOS.map((t) => (
+        <div key={`fiscal-${resetKey}`} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <FieldGroup label="Tipo de ID Fiscal" required error={fieldErrors.fiscal_id_tipo}>
+            <select
+              name="fiscal_id_tipo"
+              value={fiscalIdTipo}
+              onChange={(e) => handleFiscalIdTipoChange(e.target.value as FiscalIdTipo)}
+              className={fieldErrors.fiscal_id_tipo ? selectError : selectNormal}
+            >
+              {(tipo === ContactoTipo.PERSONA_FISICA
+                ? FISCAL_ID_TIPOS_PF
+                : FISCAL_ID_TIPOS_PJ
+              ).map((t) => (
                 <option key={t.value} value={t.value}>
                   {t.label}
                 </option>
@@ -211,13 +273,15 @@ export default function NuevoContactoPage() {
             </select>
           </FieldGroup>
           <div className="sm:col-span-2">
-            <FieldGroup label="Número de Identificación" required>
+            <FieldGroup label="Número de Identificación" required error={fieldErrors.fiscal_id}>
               <input
                 name="fiscal_id"
                 type="text"
-                required
-                placeholder="12345678A"
-                className={`${inputClass} font-mono tracking-widest`}
+                value={fiscalId}
+                onChange={(e) => setFiscalId(e.target.value)}
+                disabled={fiscalIdTipo === FiscalIdTipo.SIN_REGISTRO}
+                placeholder={fiscalIdTipo === FiscalIdTipo.SIN_REGISTRO ? "No aplica" : "12345678A"}
+                className={`${fieldErrors.fiscal_id ? inputError : inputNormal} font-mono tracking-widest disabled:cursor-not-allowed disabled:opacity-40`}
               />
             </FieldGroup>
           </div>
@@ -229,23 +293,56 @@ export default function NuevoContactoPage() {
             Datos de Contacto (opcionales)
           </p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FieldGroup label="Email">
+            <FieldGroup label="Email" error={fieldErrors.email}>
               <input
                 name="email"
                 type="email"
                 placeholder="contacto@empresa.es"
-                className={inputClass}
+                className={fieldErrors.email ? inputError : inputNormal}
               />
             </FieldGroup>
-            <FieldGroup label="Teléfono">
-              <input
-                name="telefono"
-                type="tel"
-                placeholder="+34 600 000 000"
-                className={inputClass}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  Teléfono
+                </label>
+                <div className="flex rounded-md border border-zinc-700 overflow-hidden">
+                  {([TipoTelefono.MOVIL, TipoTelefono.FIJO] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setTipoTelefono(t)}
+                      className={`px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                        tipoTelefono === t
+                          ? "bg-orange-500/20 text-orange-400"
+                          : "bg-transparent text-zinc-500 hover:text-zinc-300"
+                      }`}
+                    >
+                      {t === TipoTelefono.MOVIL ? "Móvil" : "Fijo"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <CustomPhoneInput
+                value={telefono}
+                onChange={setTelefono}
+                error={fieldErrors.telefono}
               />
-            </FieldGroup>
+            </div>
           </div>
+        </div>
+
+        {/* ── Notas ── */}
+        <div className="border-t border-zinc-800 pt-5">
+          <FieldGroup label="Notas / Observaciones" error={fieldErrors.notas}>
+            <textarea
+              value={notas}
+              onChange={(e) => setNotas(e.target.value)}
+              rows={4}
+              placeholder="Observaciones, horario de contacto, recomendaciones..."
+              className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-colors focus:border-orange-500/60 focus:ring-1 focus:ring-orange-500/30 resize-none"
+            />
+          </FieldGroup>
         </div>
 
         {/* ── Acciones ── */}
