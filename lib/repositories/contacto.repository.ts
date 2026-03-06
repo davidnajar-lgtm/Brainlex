@@ -41,6 +41,7 @@ export interface CreateContactoData {
   tipo_telefono?: TipoTelefono;
   tipo_sociedad?: string | null;
   notas?: string | null;
+  es_cliente?: boolean;
 }
 
 export interface AuditEntry {

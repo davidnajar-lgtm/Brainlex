@@ -2,13 +2,25 @@
 // app/contactos/[id]/page.tsx — Ficha Ampliada del Contacto
 //
 // @role: Agente de Frontend (React Server Component)
-// @spec: Micro-Spec 2.6 — Dashboard de Contacto (scaffold)
+// @spec: Micro-Spec 2.6 — Dashboard de Contacto (layout asimétrico 4/8)
 // ============================================================================
 
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import {
+  ArrowLeft,
+  Pencil,
+  Activity,
+  Contact,
+  Briefcase,
+  ShieldCheck,
+  Network,
+  FolderLock,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { ContactoTipo } from "@prisma/client";
+import { TabFiliacionClient } from "./_components/TabFiliacionClient";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -29,84 +41,272 @@ function getDisplayName(contacto: {
   );
 }
 
+function getInitials(displayName: string): string {
+  return displayName
+    .split(" ")
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+// ─── Subcomponentes ───────────────────────────────────────────────────────────
+
+function TabPlaceholder({
+  label,
+  description,
+  icon: Icon,
+  locked,
+}: {
+  label: string;
+  description: string;
+  icon: LucideIcon;
+  locked?: boolean;
+}) {
+  return (
+    <div
+      className={`flex flex-col items-center justify-center rounded-xl border border-dashed py-24 text-center ${
+        locked
+          ? "border-zinc-800/40 bg-zinc-900/20 opacity-50"
+          : "border-zinc-800 bg-zinc-900/30"
+      }`}
+    >
+      <div
+        className={`flex h-12 w-12 items-center justify-center rounded-full ${
+          locked ? "bg-zinc-800/40" : "bg-zinc-800/70"
+        }`}
+      >
+        <Icon className={`h-6 w-6 ${locked ? "text-zinc-700" : "text-zinc-500"}`} />
+      </div>
+      <h3
+        className={`mt-4 text-sm font-semibold ${
+          locked ? "text-zinc-600" : "text-zinc-400"
+        }`}
+      >
+        {label}
+      </h3>
+      <p
+        className={`mt-1.5 max-w-xs text-xs leading-relaxed ${
+          locked ? "text-zinc-700" : "text-zinc-600"
+        }`}
+      >
+        {/* i18n-ready: sustituir por t("tabs.{value}.description") */}
+        {locked ? "Requiere rol Cliente para acceder a este módulo." : description}
+      </p>
+    </div>
+  );
+}
+
+// ─── Tab config (i18n-ready: extraer labels a diccionario ES/EN/FR) ────────────
+
+type TabValue = "vision" | "filiacion" | "operativa" | "admin" | "ecosistema" | "boveda";
+
+const TAB_META: Record<TabValue, { label: string; description: string; icon: LucideIcon }> = {
+  vision:     { label: "Visión General",           icon: Activity,    description: "Resumen ejecutivo: actividad reciente, KPIs y alertas del contacto." },
+  filiacion:  { label: "Filiación y Canales",      icon: Contact,     description: "Datos de contacto, domicilios, canales de comunicación y preferencias." },
+  operativa:  { label: "Operativa",                icon: Briefcase,   description: "Expedientes activos, tareas pendientes y línea de tiempo operativa." },
+  admin:      { label: "Administración",           icon: ShieldCheck, description: "Facturación, documentos fiscales, contratos y cumplimiento normativo." },
+  ecosistema: { label: "Ecosistema",               icon: Network,     description: "Relaciones, personas vinculadas, sociedades participadas y red de contactos." },
+  boveda:     { label: "La Bóveda",                icon: FolderLock,  description: "Repositorio de documentos privados, certificados y archivos sensibles." },
+};
+
+const TAB_ORDER: TabValue[] = ["vision", "filiacion", "operativa", "admin", "ecosistema", "boveda"];
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function ContactoFichaPage({
   params,
+  searchParams,
 }: {
-  params: Promise<{ id: string }>;
+  params:       Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }) {
-  const { id } = await params;
+  const { id }  = await params;
+  const { tab } = await searchParams;
 
-  const contacto = await prisma.contacto.findUnique({ where: { id } });
+  const contacto = await prisma.contacto.findUnique({
+    where: { id },
+    include: { direcciones: true, canales: true },
+  });
   if (!contacto) notFound();
 
   const displayName = getDisplayName(contacto);
+  const initials    = getInitials(displayName);
+
+  // Pestaña activa: "admin" requiere es_cliente, si no → fallback a "vision"
+  const rawTab    = (TAB_ORDER.includes(tab as TabValue) ? tab : "vision") as TabValue;
+  const activeTab = rawTab === "admin" && !contacto.es_cliente ? "vision" : rawTab;
+
+  // Pestañas visibles (admin es condicional)
+  const visibleTabs = TAB_ORDER.filter(
+    (v) => v !== "admin" || contacto.es_cliente,
+  );
 
   return (
-    <div className="space-y-6">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-xs text-zinc-500">
-        <Link href="/contactos" className="hover:text-zinc-300">
-          Directorio de Contactos
-        </Link>
-        <span>/</span>
-        <span className="text-zinc-400">{displayName}</span>
-      </div>
-
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white">{displayName}</h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            {contacto.tipo === ContactoTipo.PERSONA_JURIDICA
-              ? "Persona Jurídica"
-              : "Persona Física"}
-            {contacto.fiscal_id && (
-              <span className="ml-2 font-mono text-zinc-400">
-                · {contacto.fiscal_id_tipo} {contacto.fiscal_id}
-              </span>
-            )}
-          </p>
-        </div>
+    <div className="space-y-5">
+      {/* Cabecera: Volver + breadcrumb */}
+      <div className="flex items-center gap-4">
         <Link
-          href={`/contactos/${id}/editar`}
-          className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800/60 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-zinc-100"
+          href="/contactos"
+          className="flex items-center gap-1.5 text-sm text-zinc-500 transition-colors hover:text-zinc-300"
         >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-          </svg>
-          Editar
+          <ArrowLeft className="h-4 w-4" />
+          Volver a contactos
         </Link>
-      </div>
-
-      {/* Dashboard placeholder */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {(["Expedientes", "Documentos", "Facturación"] as const).map((seccion) => (
-          <div
-            key={seccion}
-            className="flex flex-col items-center justify-center rounded-xl border border-zinc-800 border-dashed bg-zinc-900/50 py-12 text-center"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800">
-              <svg className="h-5 w-5 text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-            </div>
-            <p className="mt-3 text-sm font-medium text-zinc-500">{seccion}</p>
-            <p className="mt-1 text-xs text-zinc-700">En construcción</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Notas */}
-      {contacto.notas && (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-            Notas / Observaciones
-          </p>
-          <p className="whitespace-pre-wrap text-sm text-zinc-300">{contacto.notas}</p>
+        <div className="flex items-center gap-2 text-xs text-zinc-700">
+          <span>/</span>
+          <span className="text-zinc-500">{displayName}</span>
         </div>
-      )}
+      </div>
+
+      {/* ── Layout asimétrico 4 / 8 ── */}
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-12">
+
+        {/* ── Columna izquierda: Perfil (col-span-4) ── */}
+        <aside className="md:col-span-4">
+          <div className="sticky top-6 space-y-4 rounded-xl border border-zinc-800 bg-zinc-950 p-6">
+
+            {/* Avatar + nombre + badge */}
+            <div className="flex flex-col items-center text-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-zinc-800 text-xl font-bold text-zinc-200 ring-2 ring-zinc-700">
+                {initials || "?"}
+              </div>
+              <h1 className="mt-3 text-base font-semibold text-zinc-100 leading-tight">
+                {displayName}
+              </h1>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                {contacto.tipo === ContactoTipo.PERSONA_JURIDICA ? "Persona Jurídica" : "Persona Física"}
+              </p>
+
+              {/* Badge rol */}
+              <span
+                className={`mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${
+                  contacto.es_cliente
+                    ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20"
+                    : "bg-zinc-700/40 text-zinc-500 ring-zinc-600/20"
+                }`}
+              >
+                {contacto.es_cliente ? "CLIENTE" : "CONTACTO"}
+              </span>
+            </div>
+
+            {/* Separador */}
+            <div className="border-t border-zinc-800" />
+
+            {/* Datos de contacto */}
+            <dl className="space-y-3 text-sm">
+              {contacto.fiscal_id && (
+                <div>
+                  <dt className="text-[11px] font-semibold uppercase tracking-wider text-zinc-600">
+                    {contacto.fiscal_id_tipo ?? "ID Fiscal"}
+                  </dt>
+                  <dd className="mt-0.5 font-mono text-xs text-zinc-300 tracking-widest">
+                    {contacto.fiscal_id}
+                  </dd>
+                </div>
+              )}
+
+              {contacto.email && (
+                <div>
+                  <dt className="text-[11px] font-semibold uppercase tracking-wider text-zinc-600">
+                    Email
+                  </dt>
+                  <dd className="mt-0.5 truncate">
+                    <a
+                      href={`mailto:${contacto.email}`}
+                      className="text-xs text-orange-400 hover:text-orange-300 transition-colors"
+                    >
+                      {contacto.email}
+                    </a>
+                  </dd>
+                </div>
+              )}
+
+              {contacto.telefono && (
+                <div>
+                  <dt className="text-[11px] font-semibold uppercase tracking-wider text-zinc-600">
+                    Teléfono
+                  </dt>
+                  <dd className="mt-0.5">
+                    <a
+                      href={`tel:${contacto.telefono}`}
+                      className="font-mono text-xs text-zinc-300 hover:text-zinc-100 transition-colors"
+                    >
+                      {contacto.telefono}
+                    </a>
+                  </dd>
+                </div>
+              )}
+            </dl>
+
+            {/* Notas */}
+            {contacto.notas && (
+              <>
+                <div className="border-t border-zinc-800" />
+                <div>
+                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">
+                    Notas
+                  </p>
+                  <p className="whitespace-pre-wrap text-xs leading-relaxed text-zinc-500">
+                    {contacto.notas}
+                  </p>
+                </div>
+              </>
+            )}
+
+            {/* Separador */}
+            <div className="border-t border-zinc-800" />
+
+            {/* Acción Editar */}
+            <Link
+              href={`/contactos/${id}/editar`}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800/60 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-zinc-100"
+            >
+              <Pencil className="h-4 w-4" />
+              Editar Ficha
+            </Link>
+          </div>
+        </aside>
+
+        {/* ── Columna derecha: Área de trabajo (col-span-8) ── */}
+        <main className="md:col-span-8 space-y-4">
+
+          {/* ── Super-Tabs: scroll horizontal en móvil ── */}
+          <div className="overflow-x-auto pb-0.5">
+            <nav className="flex min-w-max gap-0.5 rounded-xl border border-zinc-800 bg-zinc-900/60 p-1">
+              {visibleTabs.map((value) => {
+                const { label, icon: Icon } = TAB_META[value];
+                const isActive = activeTab === value;
+                return (
+                  <Link
+                    key={value}
+                    href={`?tab=${value}`}
+                    className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
+                      isActive
+                        ? "bg-zinc-800 text-zinc-100 shadow-sm"
+                        : "text-zinc-500 hover:text-zinc-300"
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    {/* i18n-ready: t(`tabs.${value}.label`) */}
+                    {label}
+                  </Link>
+                );
+              })}
+            </nav>
+          </div>
+
+          {/* ── Contenido del módulo activo ── */}
+          {activeTab === "filiacion" ? (
+            <TabFiliacionClient contacto={contacto} displayName={displayName} />
+          ) : (
+            <TabPlaceholder
+              label={TAB_META[activeTab].label}
+              description={TAB_META[activeTab].description}
+              icon={TAB_META[activeTab].icon}
+            />
+          )}
+        </main>
+      </div>
     </div>
   );
 }

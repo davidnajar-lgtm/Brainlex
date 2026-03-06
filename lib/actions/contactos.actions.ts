@@ -122,6 +122,7 @@ export async function createContacto(
         tipo_telefono: data.tipo_telefono,
         tipo_sociedad: data.tipo_sociedad?.trim() || null,
         notas: data.notas?.trim() || null,
+        es_cliente: data.es_cliente ?? false,
       },
       companyId
     );
@@ -197,6 +198,7 @@ export async function updateContacto(
       tipo_telefono: data.tipo_telefono,
       tipo_sociedad: data.tipo_sociedad?.trim() || null,
       notas: data.notas?.trim() || null,
+      es_cliente: data.es_cliente ?? false,
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {

@@ -131,6 +131,9 @@ export const ContactoFormSchema = z
     fiscal_id_tipo: z.enum(FiscalIdTipo),
     fiscal_id: z.string().trim(),
 
+    // Rol de Cliente (habilita facturación)
+    es_cliente: z.boolean().default(false),
+
     // Notas libres (opcional)
     notas: z.string().optional(),
 

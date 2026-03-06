@@ -90,6 +90,7 @@ export function EditContactoForm({ contacto }: { contacto: Contacto }) {
   const [tipoSociedad, setTipoSociedad] = useState<string>(
     contacto.tipo_sociedad ?? ""
   );
+  const [esCliente, setEsCliente] = useState(contacto.es_cliente ?? false);
   const [notas, setNotas] = useState<string>(contacto.notas ?? "");
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<ContactoFieldErrors>({});
@@ -127,6 +128,7 @@ export function EditContactoForm({ contacto }: { contacto: Contacto }) {
       telefono:      telefono || undefined,
       tipo_telefono: tipoTelefono,
       tipo_sociedad: tipoSociedad || undefined,
+      es_cliente:    esCliente,
       notas:         notas || undefined,
     };
 
@@ -319,6 +321,33 @@ export function EditContactoForm({ contacto }: { contacto: Contacto }) {
             />
           </div>
         </div>
+      </div>
+
+      {/* ── Rol de Cliente ── */}
+      <div className="border-t border-zinc-800 pt-5">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={esCliente}
+          onClick={() => setEsCliente((v) => !v)}
+          className={`group flex w-full items-center gap-4 rounded-lg border px-4 py-3.5 text-left transition-colors ${
+            esCliente
+              ? "border-orange-500/40 bg-orange-500/5"
+              : "border-zinc-800 bg-zinc-800/40 hover:border-zinc-700"
+          }`}
+        >
+          <div className={`relative h-5 w-9 flex-shrink-0 rounded-full transition-colors ${esCliente ? "bg-orange-500" : "bg-zinc-700"}`}>
+            <div className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${esCliente ? "translate-x-4" : "translate-x-0.5"}`} />
+          </div>
+          <div>
+            <p className={`text-sm font-medium ${esCliente ? "text-orange-400" : "text-zinc-300"}`}>
+              Este contacto es un Cliente
+            </p>
+            <p className="text-xs text-zinc-600">
+              Habilita la facturación y el panel económico en su ficha
+            </p>
+          </div>
+        </button>
       </div>
 
       {/* ── Notas ── */}

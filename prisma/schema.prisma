@@ -161,6 +161,8 @@ model Contacto {
   // Relaciones
   company_links ContactoCompanyLink[]
   expedientes   Expediente[]
+  direcciones   Direccion[]
+  canales       CanalComunicacion[]
 
   @@unique([fiscal_id, fiscal_id_tipo]) /// Identifica única — NULL en fiscal_id excluido de la restricción
   @@index([status])
@@ -215,6 +217,63 @@ model Expediente {
   @@index([company_id])
   @@index([status])
   @@map("expedientes")
+}
+
+// ============================================================================
+// Direccion  ←  SATÉLITE 1:N de Contacto
+//
+// Permite múltiples direcciones por contacto (FISCAL, POSTAL, SEDE…).
+// es_principal=true marca la dirección canónica para correspondencia.
+// onDelete: Cascade — si el Contacto entra en flujo FORGOTTEN, las
+// direcciones se eliminan junto a él (datos PII vinculados).
+// ============================================================================
+model Direccion {
+  id         String  @id @default(cuid())
+  contactoId String
+
+  tipo           String  /// FISCAL | DOMICILIO_SOCIAL | WORKPLACE | OTRO
+  etiqueta       String? /// Solo para WORKPLACE y OTRO: nombre personalizado (ej: "Obra M-40")
+  calle          String
+  calle_2        String? /// Complemento: piso, puerta, nave, oficina, etc.
+  codigo_postal  String?
+  ciudad         String?
+  provincia      String?
+  pais           String  @default("ES")
+  es_principal   Boolean @default(false)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  contacto Contacto @relation(fields: [contactoId], references: [id], onDelete: Cascade)
+
+  @@index([contactoId])
+  @@map("direcciones")
+}
+
+// ============================================================================
+// CanalComunicacion  ←  SATÉLITE 1:N de Contacto
+//
+// Permite múltiples canales por contacto: TELEFONO, EMAIL, WEB, LINKEDIN…
+// etiqueta permite distinguir contextos ("Móvil Personal", "Email Facturación").
+// es_principal=true marca el canal preferido para ese tipo.
+// onDelete: Cascade — coherente con el ciclo de vida del Contacto.
+// ============================================================================
+model CanalComunicacion {
+  id         String  @id @default(cuid())
+  contactoId String
+
+  tipo         String  /// TELEFONO | EMAIL | WEB | LINKEDIN | WHATSAPP | FAX | OTRA
+  valor        String
+  etiqueta     String? /// Ej: "Móvil Personal", "Email Facturación"
+  es_principal Boolean @default(false)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  contacto Contacto @relation(fields: [contactoId], references: [id], onDelete: Cascade)
+
+  @@index([contactoId])
+  @@map("canales_comunicacion")
 }
 
 // ============================================================================
