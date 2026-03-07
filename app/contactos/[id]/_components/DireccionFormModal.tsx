@@ -92,6 +92,15 @@ export function DireccionFormModal({
   const [nombreCalle, setNombreCalle] = useState(initialData?.calle ?? "");
   const [numeroPiso, setNumeroPiso]   = useState("");
 
+  // — Dirty Tracking para campos autocompletables por Google Places —
+  // Regla: si el usuario ha escrito manualmente en ciudad/provincia/cp,
+  // una nueva selección de Google Places NO sobrescribirá esos campos.
+  const [dirtyAddressFields, setDirtyAddressFields] = useState<Set<string>>(new Set());
+
+  function markAddressDirty(field: string) {
+    setDirtyAddressFields((prev) => new Set(prev).add(field));
+  }
+
   // Valor combinado que se envía como FormData "calle" en modo manual
   const calleManualValue =
     [tipoVia, nombreCalle].filter(Boolean).join(" ") +
@@ -138,6 +147,7 @@ export function DireccionFormModal({
     setTipoVia("");
     setNombreCalle("");
     setNumeroPiso("");
+    setDirtyAddressFields(new Set()); // nueva sesión → reset dirty
     formRef.current?.reset();
     dialogRef.current?.showModal();
   }
@@ -147,10 +157,20 @@ export function DireccionFormModal({
     // onClose se dispara via el event listener "close" de arriba
   }
 
-  // Setters individuales — llamados desde PlacesAutocompleteInput al elegir sugerencia
-  const setCiudad       = (v: string) => { if (ciudadRef.current)    ciudadRef.current.value    = normalizeAddress(v); };
-  const setProvincia    = (v: string) => { if (provinciaRef.current) provinciaRef.current.value = normalizeAddress(v); };
-  const setCodigoPostal = (v: string) => { if (cpRef.current) cpRef.current.value = v.toUpperCase(); };
+  // Setters individuales — llamados desde PlacesAutocompleteInput al elegir sugerencia.
+  // DIRTY PROTECTION: si el campo fue editado manualmente en esta sesión, no se sobrescribe.
+  const setCiudad = (v: string) => {
+    if (dirtyAddressFields.has("ciudad")) return;
+    if (ciudadRef.current) ciudadRef.current.value = normalizeAddress(v);
+  };
+  const setProvincia = (v: string) => {
+    if (dirtyAddressFields.has("provincia")) return;
+    if (provinciaRef.current) provinciaRef.current.value = normalizeAddress(v);
+  };
+  const setCodigoPostal = (v: string) => {
+    if (dirtyAddressFields.has("codigo_postal")) return;
+    if (cpRef.current) cpRef.current.value = v.toUpperCase();
+  };
 
   const errors      = showErrors && state?.success === false ? state.errors : {};
   const showEtiqueta = tipoDireccion === "WORKPLACE" || tipoDireccion === "OTRO";
@@ -345,7 +365,12 @@ export function DireccionFormModal({
             {/* CP (mayúsculas) + Ciudad (formato Título) */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label htmlFor="dir-cp" className={labelCls}>Código Postal</label>
+                <label htmlFor="dir-cp" className={labelCls}>
+                  Código Postal
+                  {dirtyAddressFields.has("codigo_postal") && (
+                    <span className="ml-1 font-normal normal-case text-orange-500/60">✏</span>
+                  )}
+                </label>
                 <input
                   ref={cpRef}
                   id="dir-cp"
@@ -353,26 +378,37 @@ export function DireccionFormModal({
                   type="text"
                   maxLength={10}
                   defaultValue={initialData?.codigo_postal ?? ""}
-                  onChange={applyUpperCase}
+                  onChange={(e) => { applyUpperCase(e); markAddressDirty("codigo_postal"); }}
                   placeholder="28001"
-                  className={inputCls(!!errors?.codigo_postal)}
+                  className={[
+                    inputCls(!!errors?.codigo_postal),
+                    dirtyAddressFields.has("codigo_postal") ? "border-orange-700/50" : "",
+                  ].join(" ")}
                 />
                 {errors?.codigo_postal && (
                   <p className="mt-1 text-xs text-red-500">{errors.codigo_postal[0]}</p>
                 )}
               </div>
               <div>
-                <label htmlFor="dir-ciudad" className={labelCls}>Ciudad</label>
+                <label htmlFor="dir-ciudad" className={labelCls}>
+                  Ciudad
+                  {dirtyAddressFields.has("ciudad") && (
+                    <span className="ml-1 font-normal normal-case text-orange-500/60">✏</span>
+                  )}
+                </label>
                 <input
                   ref={ciudadRef}
                   id="dir-ciudad"
                   name="ciudad"
                   type="text"
                   defaultValue={initialData?.ciudad ?? ""}
-                  onChange={applyTitleCase}
+                  onChange={(e) => { applyTitleCase(e); markAddressDirty("ciudad"); }}
                   onBlur={(e) => { if (modoManual) e.target.value = normalizeAddress(e.target.value); }}
                   placeholder="Madrid"
-                  className={inputCls(false)}
+                  className={[
+                    inputCls(false),
+                    dirtyAddressFields.has("ciudad") ? "border-orange-700/50" : "",
+                  ].join(" ")}
                 />
               </div>
             </div>
@@ -380,16 +416,24 @@ export function DireccionFormModal({
             {/* Provincia (formato Título) + País ISO (mayúsculas) */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label htmlFor="dir-provincia" className={labelCls}>Provincia</label>
+                <label htmlFor="dir-provincia" className={labelCls}>
+                  Provincia
+                  {dirtyAddressFields.has("provincia") && (
+                    <span className="ml-1 font-normal normal-case text-orange-500/60">✏</span>
+                  )}
+                </label>
                 <input
                   ref={provinciaRef}
                   id="dir-provincia"
                   name="provincia"
                   type="text"
                   defaultValue={initialData?.provincia ?? ""}
-                  onChange={applyTitleCase}
+                  onChange={(e) => { applyTitleCase(e); markAddressDirty("provincia"); }}
                   placeholder="Madrid"
-                  className={inputCls(false)}
+                  className={[
+                    inputCls(false),
+                    dirtyAddressFields.has("provincia") ? "border-orange-700/50" : "",
+                  ].join(" ")}
                 />
               </div>
               <div>

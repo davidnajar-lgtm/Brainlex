@@ -29,6 +29,7 @@
 //   hay ninguno, se aplica el default de 60 meses (prescripción mercantil).
 // ============================================================================
 
+import { createHash } from "crypto";
 import { headers } from "next/headers";
 import { AuditAction, type Prisma } from "@prisma/client";
 
@@ -37,6 +38,7 @@ import {
   contactoRepository,
   sociedadRepository,
 } from "@/lib/repositories/contacto.repository";
+import { isMatrizCif } from "@/lib/config/matrizConfig";
 import {
   BusinessValidationError,
   EntityNotFoundError,
@@ -186,6 +188,21 @@ export const legalAgent = {
     const expedientes = withCounts._count.expedientes;
     const reasons: string[] = [];
 
+    // VETO PERMANENTE — Entidades matrices protegidas
+    if (withCounts.es_facturadora) {
+      reasons.push("Entidad de facturación protegida (es_facturadora). Veto de borrado permanente.");
+    }
+    if (withCounts.es_entidad_activa) {
+      reasons.push("Entidad holding activa protegida (es_entidad_activa). Veto de borrado permanente.");
+    }
+    // CINTURÓN + TIRANTES: aunque el flag no esté en DB, proteger si el CIF
+    // está configurado en BRAINLEX_MATRIZ_CIFS (failsafe ante migraciones manuales).
+    if (!withCounts.es_facturadora && isMatrizCif(withCounts.fiscal_id)) {
+      reasons.push(
+        "Entidad de facturación protegida por configuración de sistema (BRAINLEX_MATRIZ_CIFS). Veto de borrado permanente."
+      );
+    }
+
     if (expedientes > 0) {
       reasons.push(
         `${expedientes} expediente(s) activo(s) registrado(s) en el sistema.`
@@ -289,17 +306,33 @@ export const legalAgent = {
     }
 
     // ── Fase 3: PURGA — cero dependencias → DELETE físico autorizado ──────
+    // Hash SHA-256 de los campos PII: prueba criptográfica de la eliminación
+    // sin almacenar datos personales en el AuditLog (RGPD Art.17).
+    const pii_hash = createHash("sha256")
+      .update(
+        [
+          contacto?.fiscal_id      ?? "",
+          contacto?.nombre         ?? "",
+          contacto?.apellido1      ?? "",
+          contacto?.email_principal ?? "",
+        ].join("|")
+      )
+      .digest("hex");
+
     await writeAuditLog({
       record_id:  contactoId,
       action:     AuditAction.FORGET,
       ip_address,
       user_agent,
-      old_data:   oldSnapshot,
-      new_data:   null,
+      old_data: {
+        ...oldSnapshot,
+        // SHA-256 anónimo — prueba de eliminación sin PII en claro
+        pii_hash,
+      },
       notes:
         "[AGENTE LEGAL] Borrado físico autorizado. " +
         "Cero dependencias legales verificadas (expedientes=0, facturas=0, drive=0). " +
-        "Purga ejecutada.",
+        "PII hasheada (SHA-256). Purga ejecutada.",
     });
 
     // Borrado físico atómico: company_links primero (FK), luego contacto

@@ -12,13 +12,15 @@
 // ============================================================================
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   MapPin, Phone, Mail, Globe, Link2, Star,
   ExternalLink, Smartphone,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ContactoTipo, Prisma } from "@prisma/client";
+import { toggleFavoritePhone } from "@/lib/actions/contactos.actions";
 
 import { DireccionFormModal }  from "./DireccionFormModal";
 import { CanalFormModal }      from "./CanalFormModal";
@@ -116,6 +118,51 @@ function DirectChannelCard({
   );
 }
 
+// ─── FavoriteStarButton — estrella de favorito para canales TELEFONO ──────────
+
+function FavoriteStarButton({
+  canalId,
+  contactoId,
+  isFavorito,
+}: {
+  canalId:    string;
+  contactoId: string;
+  isFavorito: boolean;
+}) {
+  const router = useRouter();
+  const [favorito, setFavorito]      = useState(isFavorito);
+  const [isPending, startTransition] = useTransition();
+
+  function handleClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (favorito) return; // ya es favorito, sin acción
+    startTransition(async () => {
+      const result = await toggleFavoritePhone(canalId, contactoId);
+      if (result.ok) {
+        setFavorito(true);
+        // Refrescar RSC → DataHealthCircle recalcula con el nuevo telefono_movil/fijo
+        router.refresh();
+      }
+    });
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={isPending || favorito}
+      title={favorito ? "Teléfono favorito" : "Marcar como favorito"}
+      className={[
+        "rounded p-0.5 transition-colors",
+        favorito
+          ? "cursor-default text-amber-400"
+          : "text-zinc-600 hover:text-amber-400 disabled:opacity-40",
+      ].join(" ")}
+    >
+      <Star className={`h-3.5 w-3.5 ${favorito ? "fill-amber-400" : ""}`} />
+    </button>
+  );
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export function TabFiliacionClient({
@@ -179,6 +226,16 @@ export function TabFiliacionClient({
               <dd className="mt-0.5 font-mono text-sm tracking-widest text-zinc-300">
                 {contacto.fiscal_id}
               </dd>
+            </div>
+          )}
+
+          {/* Tipo de Sociedad — solo Persona Jurídica */}
+          {contacto.tipo === ContactoTipo.PERSONA_JURIDICA && contacto.tipo_sociedad && (
+            <div>
+              <dt className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                Tipo de sociedad
+              </dt>
+              <dd className="mt-0.5 text-sm text-zinc-300">{contacto.tipo_sociedad}</dd>
             </div>
           )}
 
@@ -299,10 +356,19 @@ export function TabFiliacionClient({
                       <Icon className="h-4 w-4 shrink-0 text-zinc-500" />
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
                         {t.canalTipo[canal.tipo] ?? canal.tipo}
+                        {canal.tipo === "TELEFONO" && canal.subtipo && (
+                          <span className="ml-1 text-zinc-700">· {canal.subtipo}</span>
+                        )}
                       </span>
-                      {canal.es_principal && (
+                      {canal.tipo === "TELEFONO" ? (
+                        <FavoriteStarButton
+                          canalId={canal.id}
+                          contactoId={contacto.id}
+                          isFavorito={canal.es_favorito}
+                        />
+                      ) : canal.es_principal ? (
                         <Star className="h-3.5 w-3.5 text-amber-400" />
-                      )}
+                      ) : null}
                     </div>
                     <CanalCardActions
                       id={canal.id}

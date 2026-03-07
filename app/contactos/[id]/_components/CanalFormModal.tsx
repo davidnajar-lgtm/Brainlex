@@ -14,11 +14,13 @@ import { crearCanal, editarCanal } from "@/lib/actions/filiacion.actions";
 // ─── Tipo para datos de edición ───────────────────────────────────────────────
 
 export type CanalInitialData = {
-  id:          string;
-  tipo:        string;
-  valor:       string;
-  etiqueta:    string | null;
+  id:           string;
+  tipo:         string;
+  valor:        string;
+  etiqueta:     string | null;
+  subtipo:      string | null;
   es_principal: boolean;
+  es_favorito:  boolean;
 };
 
 // ─── Helpers de formateo ──────────────────────────────────────────────────────
@@ -81,6 +83,7 @@ export function CanalFormModal({
   const [state, formAction, isPending] = useActionState(action, null);
   const [showErrors, setShowErrors]    = useState(false);
   const [tipoSel, setTipoSel]          = useState(initialData?.tipo ?? "TELEFONO");
+  const [subtipoSel, setSubtipoSel]    = useState(initialData?.subtipo ?? "MOVIL");
 
   // Modo edición: auto-abrir al montar
   useEffect(() => {
@@ -109,6 +112,7 @@ export function CanalFormModal({
   function openDialog() {
     setShowErrors(false);
     setTipoSel("TELEFONO");
+    setSubtipoSel("MOVIL");
     formRef.current?.reset();
     dialogRef.current?.showModal();
   }
@@ -188,6 +192,36 @@ export function CanalFormModal({
               </select>
             </div>
 
+            {/* Subtipo MOVIL / FIJO — solo para TELEFONO */}
+            {tipoSel === "TELEFONO" && (
+              <div>
+                <label className={labelCls}>Subtipo *</label>
+                <div className="flex gap-3">
+                  {(["MOVIL", "FIJO"] as const).map((sub) => (
+                    <label
+                      key={sub}
+                      className={[
+                        "flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors",
+                        subtipoSel === sub
+                          ? "border-orange-500/60 bg-orange-500/10 text-orange-300"
+                          : "border-zinc-700 bg-zinc-800/40 text-zinc-400 hover:border-zinc-600 hover:text-zinc-300",
+                      ].join(" ")}
+                    >
+                      <input
+                        type="radio"
+                        name="subtipo"
+                        value={sub}
+                        checked={subtipoSel === sub}
+                        onChange={() => setSubtipoSel(sub)}
+                        className="sr-only"
+                      />
+                      {sub === "MOVIL" ? "Móvil" : "Fijo"}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Valor — validado condicionalmente por tipo en la server action */}
             <div>
               <label htmlFor="canal-valor" className={labelCls}>Valor *</label>
@@ -222,16 +256,28 @@ export function CanalFormModal({
               />
             </div>
 
-            {/* Es principal */}
-            <label className="flex cursor-pointer items-center gap-2.5">
-              <input
-                name="es_principal"
-                type="checkbox"
-                defaultChecked={initialData?.es_principal ?? false}
-                className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 accent-orange-500"
-              />
-              <span className="text-sm text-zinc-400">Marcar como canal principal</span>
-            </label>
+            {/* Favorito (TELEFONO) o principal (otros) */}
+            {tipoSel === "TELEFONO" ? (
+              <label className="flex cursor-pointer items-center gap-2.5">
+                <input
+                  name="es_favorito"
+                  type="checkbox"
+                  defaultChecked={initialData?.es_favorito ?? false}
+                  className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 accent-orange-500"
+                />
+                <span className="text-sm text-zinc-400">Marcar como teléfono favorito</span>
+              </label>
+            ) : (
+              <label className="flex cursor-pointer items-center gap-2.5">
+                <input
+                  name="es_principal"
+                  type="checkbox"
+                  defaultChecked={initialData?.es_principal ?? false}
+                  className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 accent-orange-500"
+                />
+                <span className="text-sm text-zinc-400">Marcar como canal principal</span>
+              </label>
+            )}
 
           </div>
 

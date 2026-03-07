@@ -251,6 +251,19 @@ export function CustomPhoneInput({
           type="tel"
           value={value}
           onChange={(e) => handlePhoneChange(e.target.value)}
+          onFocus={() => {
+            if (!value.trim()) {
+              onChange(`+${getCountryCallingCode(country)} `);
+            }
+          }}
+          onBlur={() => {
+            // Si el usuario salió sin escribir número real, limpia el campo
+            if (!value.trim()) return;
+            try {
+              const parsed = parsePhoneNumberFromString(value.trim());
+              if (!parsed?.nationalNumber) onChange("");
+            } catch { onChange(""); }
+          }}
           placeholder={`+${selected?.callingCode ?? "34"} 600 000 000`}
           className="flex-1 bg-transparent px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 outline-none"
         />

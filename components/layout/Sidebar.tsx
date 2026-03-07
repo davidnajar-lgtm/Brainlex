@@ -42,6 +42,18 @@ const NAV_ITEMS = [
   },
 ];
 
+const ADMIN_ITEMS = [
+  {
+    href: "/admin/cuarentena",
+    label: "Archivo de Cuarentena",
+    icon: (
+      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+      </svg>
+    ),
+  },
+];
+
 const BOTTOM_ITEMS = [
   {
     href: "/configuracion",
@@ -122,6 +134,35 @@ export default function Sidebar() {
           })}
         </ul>
       </nav>
+
+      {/* ── Admin / Compliance ───────────────────────────────── */}
+      <div className="px-3 pb-2">
+        <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
+          Administración
+        </p>
+        <ul className="space-y-0.5">
+          {ADMIN_ITEMS.map((item) => {
+            const isActive = pathname.startsWith(item.href);
+            return (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                    isActive
+                      ? "bg-amber-500/10 text-amber-400"
+                      : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-100"
+                  }`}
+                >
+                  <span className={isActive ? "text-amber-400" : "text-zinc-600"}>
+                    {item.icon}
+                  </span>
+                  {item.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
 
       {/* ── Bottom items ─────────────────────────────────────── */}
       <div className="border-t border-zinc-800 px-3 py-3">

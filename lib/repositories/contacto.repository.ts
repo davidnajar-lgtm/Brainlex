@@ -22,6 +22,10 @@ export type ContactoWithDependencyCounts = Contacto & {
   _count: { expedientes: number };
 };
 
+export type QuarantineContactRow = Contacto & {
+  _count: { expedientes: number };
+};
+
 export interface QuarantineData {
   quarantine_reason: string;
   quarantine_expires_at: Date;
@@ -59,6 +63,14 @@ export interface AuditEntry {
   old_data?: Prisma.InputJsonValue;
   new_data?: Prisma.InputJsonValue;
   notes?: string;
+  /** SHA-256(fiscal_id|fiscal_id_tipo) — solo en FORGET. Sin PII. */
+  hash_identificador?: string;
+  /** Base legal: "RGPD Art.17 — Derecho al Olvido" / "Prescripción art.70 GILF" */
+  base_legal?: string;
+  /** Conteo de registros destruidos: { contactos, expedientes, facturas, documentos_drive } */
+  meta_counts?: Prisma.InputJsonValue;
+  /** true = este log puede ser purgado cuando se formalice el Derecho al Olvido */
+  purgeable?: boolean;
 }
 
 // ─── Repositorio ─────────────────────────────────────────────────────────────
@@ -231,6 +243,45 @@ export const contactoRepository = {
    */
   async appendAuditLog(entry: AuditEntry): Promise<void> {
     await prisma.auditLog.create({ data: entry });
+  },
+
+  /**
+   * Busca un Contacto por NIF en TODOS los estados (ACTIVE, QUARANTINE, FORGOTTEN).
+   * Usado para detectar el "Limbo Legal": un NIF en QUARANTINE que impide crear uno nuevo.
+   */
+  async findByFiscalIdAllStatuses(
+    fiscal_id: string,
+    fiscal_id_tipo: FiscalIdTipo
+  ): Promise<Contacto | null> {
+    return prisma.contacto.findFirst({
+      where: { fiscal_id, fiscal_id_tipo },
+    });
+  },
+
+  /**
+   * Devuelve todos los Contactos en estado QUARANTINE con recuento de expedientes.
+   * Ordenados por fecha de expiración ascendente (más urgentes primero).
+   * Usado por el Guardian Dashboard (/admin/cuarentena).
+   */
+  async findAllQuarantine(): Promise<QuarantineContactRow[]> {
+    return prisma.contacto.findMany({
+      where:   { status: ContactoStatus.QUARANTINE },
+      orderBy: { quarantine_expires_at: "asc" },
+      include: { _count: { select: { expedientes: true } } },
+    }) as Promise<QuarantineContactRow[]>;
+  },
+
+  /**
+   * Devuelve los Contactos en QUARANTINE cuyo plazo de retención ha vencido.
+   * Usado por el cron de purga automática (/api/cron/purge-quarantine).
+   */
+  async findExpiredQuarantine(): Promise<Contacto[]> {
+    return prisma.contacto.findMany({
+      where: {
+        status:                ContactoStatus.QUARANTINE,
+        quarantine_expires_at: { lte: new Date() },
+      },
+    });
   },
 };
 

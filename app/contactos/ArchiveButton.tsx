@@ -67,9 +67,10 @@ export function ArchiveButton({ id }: { id: string }) {
         onClick={openModal}
         disabled={isPending}
         title="Archivar contacto en Cuarentena (VETO LEGAL — el historial se conserva)"
-        className="text-xs font-medium text-zinc-700 transition-colors hover:text-amber-500 disabled:opacity-40"
+        className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm font-medium text-amber-400 transition-colors hover:border-amber-500/50 hover:bg-amber-500/20 disabled:opacity-40"
       >
-        {isPending ? "…" : "Archivar"}
+        <Archive className="h-4 w-4" />
+        {isPending ? "Archivando…" : "Archivar contacto"}
       </button>
 
       {/* ── Modal de Cuarentena ── */}

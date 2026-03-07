@@ -3,12 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "clean": "taskkill /F /IM node.exe 2>nul & rmdir /S /Q .next 2>nul & echo Listo."
   },
   "dependencies": {
     "@googlemaps/js-api-loader": "^2.0.2",

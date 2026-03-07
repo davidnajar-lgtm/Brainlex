@@ -12,7 +12,7 @@
 // ============================================================================
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { setOptions, importLibrary } from "@googlemaps/js-api-loader";
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
@@ -64,9 +64,15 @@ export function PlacesAutocompleteInput({
 }: Props) {
   const mountRef  = useRef<HTMLDivElement>(null);
   const hiddenRef = useRef<HTMLInputElement>(null);
+  // apiAvailable: false cuando no hay API key o cuando la carga de la librería falla.
+  // En ese caso se renderiza un <input type="text"> manual en su lugar.
+  const [apiAvailable, setApiAvailable] = useState(!!apiKey);
 
   useEffect(() => {
-    if (!apiKey || !mountRef.current) return;
+    if (!apiKey || !mountRef.current) {
+      setApiAvailable(false);
+      return;
+    }
 
     // setOptions dentro de useEffect → evita el warning en Fast Refresh.
     // El flag en window sobrevive a re-evaluaciones del módulo (HMR).
@@ -87,6 +93,7 @@ export function PlacesAutocompleteInput({
     (importLibrary("places") as Promise<PlacesLibraryWithPAE>)
       .catch((err: unknown) => {
         console.error("[Places] importLibrary('places') FAILED:", err);
+        setApiAvailable(false);
       })
       .then((lib) => {
         if (!lib) return; // capturado en el .catch anterior
@@ -162,6 +169,21 @@ export function PlacesAutocompleteInput({
 
     return () => { cancelled = true; gmpEl?.remove(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fallback manual: API no disponible (sin key o carga fallida)
+  if (!apiAvailable) {
+    return (
+      <input
+        type="text"
+        name={name}
+        id={id}
+        required={required}
+        defaultValue={String(defaultValue ?? "")}
+        placeholder={placeholder ?? "Calle y número"}
+        className={className}
+      />
+    );
+  }
 
   return (
     <>

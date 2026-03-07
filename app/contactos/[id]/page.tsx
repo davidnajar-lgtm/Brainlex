@@ -20,9 +20,13 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { ContactoTipo } from "@prisma/client";
-import { TabFiliacionClient } from "./_components/TabFiliacionClient";
-import { TabOperativa }       from "./_components/TabOperativa";
-import { TabAdmin }           from "./_components/TabAdmin";
+import { TabFiliacionClient }    from "./_components/TabFiliacionClient";
+import { TabOperativa }          from "./_components/TabOperativa";
+import { TabAdmin }              from "./_components/TabAdmin";
+import { IsActiveToggle }        from "./_components/IsActiveToggle";
+import { RolesPanel }            from "./_components/RolesPanel";
+import { DataHealthCircle }      from "@/app/contactos/DataHealthCircle";
+import { calcDataHealth }        from "@/lib/utils/dataHealth";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -131,8 +135,9 @@ export default async function ContactoFichaPage({
   });
   if (!contacto) notFound();
 
-  const displayName = getDisplayName(contacto);
-  const initials    = getInitials(displayName);
+  const displayName  = getDisplayName(contacto);
+  const initials     = getInitials(displayName);
+  const healthScore  = calcDataHealth(contacto);
 
   // Pestaña activa: cualquier valor de TAB_ORDER es válido; fallback a "vision"
   const activeTab = (TAB_ORDER.includes(tab as TabValue) ? tab : "vision") as TabValue;
@@ -166,9 +171,20 @@ export default async function ContactoFichaPage({
 
             {/* Avatar + nombre + badge */}
             <div className="flex flex-col items-center text-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-zinc-800 text-xl font-bold text-zinc-200 ring-2 ring-zinc-700">
-                {initials || "?"}
+              {/* Avatar con health ring integrado */}
+              <div className="relative">
+                <DataHealthCircle
+                  score={healthScore}
+                  size={72}
+                  strokeWidth={4}
+                  showLabel={false}
+                  className="absolute inset-0"
+                />
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-zinc-800 text-xl font-bold text-zinc-200 m-[4px]">
+                  {initials || "?"}
+                </div>
               </div>
+
               <h1 className="mt-3 text-base font-semibold text-zinc-100 leading-tight">
                 {displayName}
               </h1>
@@ -176,16 +192,48 @@ export default async function ContactoFichaPage({
                 {contacto.tipo === ContactoTipo.PERSONA_JURIDICA ? "Persona Jurídica" : "Persona Física"}
               </p>
 
-              {/* Badge rol */}
-              <span
-                className={`mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${
-                  contacto.es_cliente
-                    ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20"
-                    : "bg-zinc-700/40 text-zinc-500 ring-zinc-600/20"
-                }`}
-              >
-                {contacto.es_cliente ? "CLIENTE" : "CONTACTO"}
-              </span>
+              {/* Badge de rol (estático) */}
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
+                {contacto.es_facturadora && (
+                  <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 bg-violet-500/15 text-violet-300 ring-violet-500/40">
+                    MATRIZ
+                  </span>
+                )}
+                {contacto.es_cliente && (
+                  <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 bg-emerald-500/10 text-emerald-400 ring-emerald-500/20">
+                    CLIENTE
+                  </span>
+                )}
+                {!contacto.es_cliente && !contacto.es_precliente && !contacto.es_facturadora && (
+                  <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 bg-zinc-700/60 text-zinc-300 ring-zinc-500/50">
+                    CONTACTO
+                  </span>
+                )}
+              </div>
+
+              {/* Toggles de estado rápido */}
+              <div className="mt-3 w-full space-y-1.5">
+                <p className="text-center text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
+                  Estado rápido
+                </p>
+                <div className="flex justify-center">
+                  <IsActiveToggle
+                    contactoId={contacto.id}
+                    initialIsActive={contacto.is_active}
+                  />
+                </div>
+                <RolesPanel
+                  contactoId={contacto.id}
+                  initialEsCliente={contacto.es_cliente}
+                  initialEsPrecliente={contacto.es_precliente}
+                  initialEsFacturadora={contacto.es_facturadora}
+                />
+              </div>
+
+              {/* Health score label */}
+              <p className="mt-1.5 text-[11px] text-zinc-600">
+                Completitud: <span className="font-semibold text-zinc-400">{healthScore}%</span>
+              </p>
             </div>
 
             {/* Separador */}
@@ -252,6 +300,32 @@ export default async function ContactoFichaPage({
                 </div>
               )}
             </dl>
+
+            {/* Dirección principal */}
+            {(() => {
+              const addr =
+                contacto.direcciones.find((d) => d.es_principal) ??
+                contacto.direcciones.find((d) => d.tipo === "FISCAL") ??
+                contacto.direcciones[0];
+              if (!addr) return null;
+              const linea2 = [addr.codigo_postal, addr.ciudad, addr.provincia]
+                .filter(Boolean)
+                .join(" ");
+              return (
+                <>
+                  <div className="border-t border-zinc-800" />
+                  <div>
+                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">
+                      Dirección
+                    </p>
+                    <p className="text-xs leading-relaxed text-zinc-400">{addr.calle}</p>
+                    {linea2 && (
+                      <p className="text-xs text-zinc-500">{linea2}</p>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
 
             {/* Notas */}
             {contacto.notas && (

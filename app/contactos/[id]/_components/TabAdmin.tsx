@@ -12,6 +12,7 @@
 import { CheckCircle2, ShieldAlert, Eye, Trash2 } from "lucide-react";
 import { contactoRepository } from "@/lib/repositories/contacto.repository";
 import { RestoreButton } from "./RestoreButton";
+import { ArchiveButton } from "@/app/contactos/ArchiveButton";
 import type { AuditAction, ContactoStatus } from "@prisma/client";
 import { getContactosLabels, type AppLocale } from "@/lib/i18n/contactos";
 
@@ -117,6 +118,11 @@ export async function TabAdmin({
               </div>
             )}
           </div>
+        )}
+
+        {/* Botón Archivar (solo si ACTIVE) */}
+        {status === "ACTIVE" && (
+          <ArchiveButton id={contactoId} />
         )}
 
         {/* Botón Restaurar (solo si QUARANTINE) */}

@@ -100,7 +100,9 @@ const CanalFieldsSchema = z.object({
   tipo:         z.enum(["TELEFONO", "EMAIL", "WEB", "LINKEDIN", "WHATSAPP", "FAX", "OTRA"]),
   valor:        z.string().min(1, "El valor es obligatorio"),
   etiqueta:     z.string().optional(),
+  subtipo:      z.string().optional(),
   es_principal: z.boolean().default(false),
+  es_favorito:  z.boolean().default(false),
 });
 
 // ─── Schemas de CREATE (añaden contactoId) ────────────────────────────────────
@@ -184,7 +186,9 @@ export async function crearCanal(
     tipo:         formData.get("tipo"),
     valor:        formData.get("valor"),
     etiqueta:     formData.get("etiqueta")?.toString().trim() || undefined,
+    subtipo:      formData.get("subtipo")?.toString() || undefined,
     es_principal: formData.get("es_principal") === "on",
+    es_favorito:  formData.get("es_favorito") === "on",
   };
 
   const parsed = CanalSchema.safeParse(raw);
@@ -199,13 +203,37 @@ export async function crearCanal(
   };
 
   await prisma.$transaction(async (tx) => {
+    // TAREA 3: primer canal de este tipo → favorito automático
+    const existingCount = await tx.canalComunicacion.count({
+      where: { contactoId: data.contactoId, tipo: data.tipo },
+    });
+    const esFavorito = data.es_favorito || existingCount === 0;
+
     if (data.es_principal) {
       await tx.canalComunicacion.updateMany({
         where: { contactoId: data.contactoId, es_principal: true },
         data:  { es_principal: false },
       });
     }
-    await tx.canalComunicacion.create({ data });
+    if (esFavorito) {
+      await tx.canalComunicacion.updateMany({
+        where: { contactoId: data.contactoId, tipo: data.tipo, es_favorito: true },
+        data:  { es_favorito: false },
+      });
+    }
+
+    await tx.canalComunicacion.create({ data: { ...data, es_favorito: esFavorito } });
+
+    // TAREA 1: sync caché de la tabla principal
+    if (esFavorito && data.tipo === "TELEFONO") {
+      if (data.subtipo === "FIJO") {
+        await tx.contacto.update({ where: { id: data.contactoId }, data: { telefono_fijo: data.valor } });
+      } else {
+        await tx.contacto.update({ where: { id: data.contactoId }, data: { telefono_movil: data.valor } });
+      }
+    } else if (data.es_principal && data.tipo === "EMAIL") {
+      await tx.contacto.update({ where: { id: data.contactoId }, data: { email_principal: data.valor } });
+    }
   });
   revalidatePath(`/contactos/${data.contactoId}`);
   return { success: true };
@@ -283,7 +311,9 @@ export async function editarCanal(
     tipo:         formData.get("tipo"),
     valor:        formData.get("valor"),
     etiqueta:     formData.get("etiqueta")?.toString().trim() || undefined,
+    subtipo:      formData.get("subtipo")?.toString() || undefined,
     es_principal: formData.get("es_principal") === "on",
+    es_favorito:  formData.get("es_favorito") === "on",
   };
 
   const parsed = CanalUpdateSchema.safeParse(raw);
@@ -295,7 +325,9 @@ export async function editarCanal(
     tipo:         parsed.data.tipo,
     valor:        parsed.data.valor,
     etiqueta:     parsed.data.etiqueta ? toUpperTrim(parsed.data.etiqueta) : null,
+    subtipo:      parsed.data.subtipo ?? null,
     es_principal: parsed.data.es_principal,
+    es_favorito:  parsed.data.es_favorito,
   };
 
   await prisma.$transaction(async (tx) => {
@@ -305,7 +337,24 @@ export async function editarCanal(
         data:  { es_principal: false },
       });
     }
+    if (data.es_favorito) {
+      await tx.canalComunicacion.updateMany({
+        where: { contactoId, tipo: data.tipo, es_favorito: true, NOT: { id } },
+        data:  { es_favorito: false },
+      });
+    }
     await tx.canalComunicacion.update({ where: { id }, data });
+
+    // TAREA 1: sync caché de la tabla principal
+    if (data.es_favorito && data.tipo === "TELEFONO") {
+      if (data.subtipo === "FIJO") {
+        await tx.contacto.update({ where: { id: contactoId }, data: { telefono_fijo: data.valor } });
+      } else {
+        await tx.contacto.update({ where: { id: contactoId }, data: { telefono_movil: data.valor } });
+      }
+    } else if (data.es_principal && data.tipo === "EMAIL") {
+      await tx.contacto.update({ where: { id: contactoId }, data: { email_principal: data.valor } });
+    }
   });
   revalidatePath(`/contactos/${contactoId}`);
   return { success: true };

@@ -1,4 +1,5 @@
 import WorldClock from "@/app/components/WorldClock";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 
 export default function Topbar({ title = "Panel de Control" }: { title?: string }) {
   return (
@@ -12,6 +13,11 @@ export default function Topbar({ title = "Panel de Control" }: { title?: string 
       <div className="flex items-center gap-4">
         {/* World clock */}
         <WorldClock />
+
+        <div className="h-5 w-px bg-zinc-800" />
+
+        {/* Theme toggle */}
+        <ThemeToggle />
 
         <div className="h-5 w-px bg-zinc-800" />
 

@@ -1,10 +1,11 @@
 // Dashboard principal — BrainLex ERP
-// Sin conexión a BD todavía: datos placeholder para validar la UI.
+import { prisma } from "@/lib/prisma";
 
-const STATS = [
+function buildStats(contactosActivos: number, cuarentena: number) {
+  return [
   {
     label: "Contactos activos",
-    value: "—",
+    value: String(contactosActivos),
     sub: "Clientes y contactos",
     iconBg: "bg-blue-500/10",
     iconColor: "text-blue-400",
@@ -40,7 +41,7 @@ const STATS = [
   },
   {
     label: "Alertas de cuarentena",
-    value: "—",
+    value: String(cuarentena),
     sub: "Contactos en revisión legal",
     iconBg: "bg-amber-500/10",
     iconColor: "text-amber-400",
@@ -50,24 +51,23 @@ const STATS = [
       </svg>
     ),
   },
-];
+  ]; // fin buildStats
+}
 
 const QUICK_ACTIONS = [
-  { label: "Nuevo Contacto", href: "/contactos/nuevo", description: "Registrar cliente o contacto" },
+  { label: "Nuevo Contacto", href: "/contactos/nuevo", description: "Registrar cliente, pre-cliente o contacto" },
   { label: "Nuevo Expediente", href: "/expedientes/nuevo", description: "Abrir expediente de trabajo" },
   { label: "Gestionar Cuarentena", href: "/contactos", description: "Revisar bajas legales pendientes" },
 ];
 
-const DEV_PHASES = [
-  { label: "Fase 1.1 — Schema Core", done: true },
-  { label: "Fase 1.2 — Middleware Legal", done: true },
-  { label: "Fase 2.1 — App Shell", done: true },
-  { label: "Fase 2.2 — Contactos UI", done: false },
-  { label: "Fase 3 — Drive", done: false },
-  { label: "Fase 4 — Facturación", done: false },
-];
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const [contactosActivos, cuarentena] = await Promise.all([
+    prisma.contacto.count({ where: { status: "ACTIVE", is_active: true } }),
+    prisma.contacto.count({ where: { status: "QUARANTINE" } }),
+  ]);
+  const STATS = buildStats(contactosActivos, cuarentena);
+
   return (
     <div className="space-y-5">
       {/* Header de bienvenida */}
@@ -78,7 +78,7 @@ export default function DashboardPage() {
               BrainLex ERP — Panel de Control
             </h1>
             <p className="mt-1 text-sm text-zinc-500">
-              Sistema de gestión legal y fiscal · Lexconomy SL &amp; Lawork Developments SL
+              Sistema de gestión legal y fiscal
             </p>
           </div>
           <div className="flex items-center gap-2 rounded-full border border-emerald-900/60 bg-emerald-950/60 px-3 py-1">
@@ -87,30 +87,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Roadmap de fases */}
-        <div className="mt-4 flex flex-wrap gap-2">
-          {DEV_PHASES.map((phase) => (
-            <span
-              key={phase.label}
-              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                phase.done
-                  ? "bg-orange-500/10 text-orange-400"
-                  : "bg-zinc-800 text-zinc-500"
-              }`}
-            >
-              {phase.done ? (
-                <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                </svg>
-              ) : (
-                <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                </svg>
-              )}
-              {phase.label}
-            </span>
-          ))}
-        </div>
       </div>
 
       {/* KPI cards */}

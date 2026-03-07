@@ -1,60 +1,156 @@
 @import "tailwindcss";
 
+/* ============================================================================
+   DESIGN TOKENS — Marca Blanca / White-Label
+   Sistema semántico de dos capas:
+     · Tema oscuro: DEFAULT — coincide con zinc-9xx actual, sin breaking changes
+     · Tema claro:  activado con class="light" en <html>
+
+   Uso en Tailwind v4 (registrado en @theme inline):
+     bg-surface-page      border-border-subtle    text-content-primary
+     bg-surface-card      border-border-default   text-content-secondary
+     bg-surface-input     bg-accent               text-content-muted
+   ============================================================================ */
+
+/* ── Tema oscuro — DEFAULT (valores actuales zinc-9xx, sin breaking changes) */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Surfaces */
+  --surface-page:     #09090b; /* zinc-950 */
+  --surface-card:     #18181b; /* zinc-900 */
+  --surface-elevated: #27272a; /* zinc-800 */
+  --surface-input:    #27272a; /* zinc-800 */
+  --surface-hover:    #3f3f46; /* zinc-700 */
+
+  /* Borders */
+  --border-subtle:    #27272a; /* zinc-800 */
+  --border-default:   #3f3f46; /* zinc-700 */
+
+  /* Content / Text */
+  --content-primary:   #fafafa; /* zinc-50  */
+  --content-secondary: #a1a1aa; /* zinc-400 */
+  --content-muted:     #52525b; /* zinc-600 */
+  --content-disabled:  #3f3f46; /* zinc-700 */
+
+  /* Brand accent: Orange — invariante en ambos temas */
+  --accent:            #f97316; /* orange-500 */
+  --accent-hover:      #ea6f0e; /* orange-600 */
+  --accent-muted:      rgba(249,115,22,0.10);
+  --accent-ring:       rgba(249,115,22,0.30);
+
+  /* Semantic status */
+  --status-success:    #22c55e; /* green-500  */
+  --status-warning:    #f59e0b; /* amber-500  */
+  --status-danger:     #ef4444; /* red-500    */
+
+  /* Legacy compat */
+  --background: #09090b;
+  --foreground:  #fafafa;
 }
 
+/* ── Tema claro — activado con class="light" en <html> ───────────────────── */
+html.light {
+  /* Surfaces */
+  --surface-page:     #f4f4f5; /* zinc-100 */
+  --surface-card:     #ffffff;
+  --surface-elevated: #f9fafb; /* gray-50  */
+  --surface-input:    #ffffff;
+  --surface-hover:    #e4e4e7; /* zinc-200 */
+
+  /* Borders */
+  --border-subtle:    #e4e4e7; /* zinc-200 */
+  --border-default:   #d4d4d8; /* zinc-300 */
+
+  /* Content / Text */
+  --content-primary:   #09090b; /* zinc-950 */
+  --content-secondary: #52525b; /* zinc-600 */
+  --content-muted:     #a1a1aa; /* zinc-400 */
+  --content-disabled:  #d4d4d8; /* zinc-300 */
+
+  /* Accent: naranja más oscuro para contraste en fondo claro */
+  --accent:            #ea580c; /* orange-600 */
+  --accent-hover:      #c2410c; /* orange-700 */
+  --accent-muted:      rgba(234,88,12,0.08);
+  --accent-ring:       rgba(234,88,12,0.25);
+
+  --background: #f4f4f5;
+  --foreground:  #09090b;
+
+  /* ── Inversión escala zinc (Tailwind v4) ────────────────────────────────
+     En Tailwind v4 los colores son CSS custom properties sobreescribibles
+     por selector. Invertir la escala hace que TODOS los componentes con
+     clases hardcoded bg-zinc-9xx / text-zinc-1xx respondan al tema claro
+     sin necesidad de modificar ningún componente.                        */
+  --color-zinc-950: oklch(98.4% 0.003 247.86);  /* ← era zinc-50  en dark */
+  --color-zinc-900: oklch(96.7% 0.003 264.54);  /* ← era zinc-100 en dark */
+  --color-zinc-800: oklch(93.5% 0.005 264.07);  /* ← era zinc-200 en dark */
+  --color-zinc-700: oklch(87.7% 0.008 262.85);  /* ← era zinc-300 en dark */
+  --color-zinc-600: oklch(70.5% 0.015 265.75);  /* ← era zinc-400 en dark */
+  --color-zinc-500: oklch(55.2% 0.016 264.36);  /* ← era zinc-500 en dark */
+  --color-zinc-400: oklch(44.2% 0.017 285.79);  /* ← era zinc-600 en dark */
+  --color-zinc-300: oklch(37.3% 0.016 265.75);  /* ← era zinc-700 en dark */
+  --color-zinc-200: oklch(27.4% 0.009 264.36);  /* ← era zinc-800 en dark */
+  --color-zinc-100: oklch(21%   0.006 285.88);  /* ← era zinc-900 en dark */
+  --color-zinc-50:  oklch(14.5% 0.004 285.88);  /* ← era zinc-950 en dark */
+}
+
+/* ── Registro Tailwind v4 ─────────────────────────────────────────────────── */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background:       var(--background);
+  --color-foreground:       var(--foreground);
+  --font-sans:              var(--font-geist-sans);
+  --font-mono:              var(--font-geist-mono);
+
+  /* Surfaces */
+  --color-surface-page:     var(--surface-page);
+  --color-surface-card:     var(--surface-card);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-input:    var(--surface-input);
+  --color-surface-hover:    var(--surface-hover);
+
+  /* Borders */
+  --color-border-subtle:    var(--border-subtle);
+  --color-border-default:   var(--border-default);
+
+  /* Content */
+  --color-content-primary:   var(--content-primary);
+  --color-content-secondary: var(--content-secondary);
+  --color-content-muted:     var(--content-muted);
+  --color-content-disabled:  var(--content-disabled);
+
+  /* Accent */
+  --color-accent:            var(--accent);
+  --color-accent-hover:      var(--accent-hover);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* ── Base ─────────────────────────────────────────────────────────────────── */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background:  var(--surface-page);
+  color:       var(--content-primary);
+  font-family: var(--font-geist-sans, Arial, Helvetica, sans-serif);
 }
 
-/* ── Google PlaceAutocompleteElement — Tema oscuro Brainlex ─────────────────
-   shadowRoot en modo 'closed': no accesible via JS.
-   Styling via:
-     1. ::part(input)  — si Google expone part="input" en el template
-     2. custom props   — si Google usa var() internamente
-     3. host classes   — Tailwind aplicado al host en el componente
-   ────────────────────────────────────────────────────────────────────────── */
+/* ── Google PlaceAutocompleteElement — hereda tokens del tema ───────────────
+   shadowRoot 'closed': styling via ::part(input) + herencia de color.       */
 gmp-place-autocomplete {
-  display: block;
-  width:   100%;
-  /* Propiedades heredadas que SÍ entran en shadow DOM sin ::part() */
-  color:       #f4f4f5;
+  display:     block;
+  width:       100%;
+  color:       var(--content-primary);
   font-size:   0.875rem;
   font-family: inherit;
 }
 
-/* Intento 1: ::part(input) — penetra shadow DOM si Google expone el part */
 gmp-place-autocomplete::part(input) {
-  background:   #27272a !important; /* zinc-800 */
-  color:        #f4f4f5 !important; /* zinc-100 */
-  border:       none    !important;
-  outline:      none    !important;
-  width:        100%    !important;
-  height:       100%    !important;
-  padding:      0       !important;
-  font-size:    inherit !important;
-  font-family:  inherit !important;
+  background:  var(--surface-input)   !important;
+  color:       var(--content-primary) !important;
+  border:      none    !important;
+  outline:     none    !important;
+  width:       100%    !important;
+  height:      100%    !important;
+  padding:     0       !important;
+  font-size:   inherit !important;
+  font-family: inherit !important;
 }
 
 gmp-place-autocomplete::part(input)::placeholder {
-  color: #71717a !important; /* zinc-500 */
+  color: var(--content-muted) !important;
 }
-

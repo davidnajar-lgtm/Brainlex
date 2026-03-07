@@ -53,6 +53,9 @@ enum FiscalIdTipo {
   PASAPORTE
   VAT
   TIE
+  K   /// NIF K — español menor de 14 años residente en España (provisional hasta DNI)
+  L   /// NIF L — español residente en el extranjero (provisional hasta DNI)
+  M   /// NIF M — extranjero sin NIE con intereses económicos en España (provisional hasta NIE)
   REGISTRO_EXTRANJERO
   CODIGO_SOPORTE
   SIN_REGISTRO
@@ -135,8 +138,11 @@ model Contacto {
   canal_preferido String   @default("EMAIL") /// Canal oficial: "EMAIL" | "MOVIL"
 
   // — Roles (no excluyentes) —
-  es_cliente  Boolean @default(false)
-  es_contacto Boolean @default(true)
+  es_cliente        Boolean @default(false)
+  es_precliente     Boolean @default(false) /// Contacto en fase de conversión a cliente (pipeline comercial).
+  es_contacto       Boolean @default(true)
+  es_facturadora    Boolean @default(false) /// Entidad matriz de facturación (Lexconomy/Lawtech). Veto de borrado permanente.
+  es_entidad_activa Boolean @default(false) /// Entidad holding activa protegida. Veto de borrado permanente.
 
   // — Ciclo de vida (VETO LEGAL) ————————————————————————————————————————————
   // REGLA: si status = QUARANTINE → quarantine_reason OBLIGATORIO
@@ -157,6 +163,11 @@ model Contacto {
   last_accounts_year Int?     /// Último año de cuentas anuales presentadas en el Registro
   last_books_year    Int?     /// Último año de libros contables cerrados formalmente
 
+  // — Estado comercial (INDEPENDIENTE del ciclo legal QUARANTINE/FORGOTTEN) —
+  // true  = contacto operativo visible en el Directorio activo
+  // false = oculto del Directorio pero datos íntegros; sin restricción legal
+  is_active Boolean @default(true)
+
   // — Notas libres —
   notas String?
 
@@ -174,6 +185,7 @@ model Contacto {
 
   @@unique([fiscal_id, fiscal_id_tipo]) /// Identifica única — NULL en fiscal_id excluido de la restricción
   @@index([status])
+  @@index([es_cliente, es_precliente, es_facturadora]) /// Optimiza filtrado por roles en el Directorio
   @@map("contactos")
 }
 
@@ -271,9 +283,11 @@ model CanalComunicacion {
   contactoId String
 
   tipo         String  /// TELEFONO | EMAIL | WEB | LINKEDIN | WHATSAPP | FAX | OTRA
+  subtipo      String? /// Solo para TELEFONO: MOVIL | FIJO
   valor        String
   etiqueta     String? /// Ej: "Móvil Personal", "Email Facturación"
   es_principal Boolean @default(false)
+  es_favorito  Boolean @default(false) /// true = teléfono favorito; se sincroniza en Contacto.telefono_movil/fijo
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -308,10 +322,20 @@ model AuditLog {
   new_data Json?
   notes    String?
 
+  /// SHA-256(fiscal_id|fiscal_id_tipo) — solo en FORGET. Sin PII. Indexado para el Verificador de Borrado.
+  hash_identificador String?
+  /// Base legal del borrado: "RGPD Art.17 — Derecho al Olvido" / "Prescripción art.70 GILF"
+  base_legal         String?
+  /// Conteo de registros destruidos: { contactos, expedientes, facturas, documentos_drive }
+  meta_counts        Json?
+  /// true = este log puede ser purgado cuando se formalice el Derecho al Olvido completo
+  purgeable          Boolean  @default(false)
+
   created_at DateTime @default(now())
 
   @@index([table_name, record_id])
   @@index([actor_id])
   @@index([created_at])
+  @@index([hash_identificador])
   @@map("audit_logs")
 }

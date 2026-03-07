@@ -26,9 +26,11 @@ import { Contacto, ContactoTipo, FiscalIdTipo } from "@prisma/client";
 
 /** Datos externos que puede inyectar el buscador Google POI / Places */
 export type ExternalPoiData = {
-  phone?:    string;   // número de teléfono en cualquier formato
-  website?:  string;   // URL del sitio web
-  linkedin?: string;   // URL del perfil de LinkedIn
+  phone?:      string;   // número de teléfono en cualquier formato
+  website?:    string;   // URL del sitio web
+  linkedin?:   string;   // URL del perfil de LinkedIn
+  razonSocial?: string;  // nombre comercial / razón social desde Google POI
+  nombre?:     string;   // nombre de pila (Persona Física)
 };
 
 /** Sugerencias en espera (campo ya tiene valor manual → no sobrescribir) */
@@ -36,6 +38,12 @@ type PoiSuggestion = {
   telefono_movil?: string;
   telefono_fijo?:  string;
   website_url?:    string;
+};
+
+/** Conflictos de identidad: Google sugiere algo diferente a lo que el usuario escribió */
+type IdentityConflict = {
+  razon_social?: string;
+  nombre?:       string;
 };
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
@@ -47,13 +55,15 @@ const FISCAL_ID_TIPOS_PF: { value: FiscalIdTipo; label: string }[] = [
   { value: FiscalIdTipo.PASAPORTE,      label: "Pasaporte" },
   { value: FiscalIdTipo.TIE,            label: "TIE" },
   { value: FiscalIdTipo.VAT,            label: "VAT (UE)" },
+  { value: FiscalIdTipo.K,              label: "NIF K (menor español)" },
+  { value: FiscalIdTipo.L,              label: "NIF L (español en extranjero)" },
+  { value: FiscalIdTipo.M,              label: "NIF M (extranjero sin NIE)" },
   { value: FiscalIdTipo.CODIGO_SOPORTE, label: "Código de Soporte" },
   { value: FiscalIdTipo.SIN_REGISTRO,   label: "Sin Registro" },
 ];
 
 const FISCAL_ID_TIPOS_PJ: { value: FiscalIdTipo; label: string }[] = [
   { value: FiscalIdTipo.NIF,          label: "NIF" },
-  { value: FiscalIdTipo.CIF,          label: "CIF" },
   { value: FiscalIdTipo.VAT,          label: "VAT (UE)" },
   { value: FiscalIdTipo.SIN_REGISTRO, label: "Sin Registro" },
 ];
@@ -141,8 +151,47 @@ export function EditContactoForm({ contacto }: { contacto: Contacto }) {
   const [tipoSociedad, setTipoSociedad] = useState<string>(
     contacto.tipo_sociedad ?? ""
   );
-  const [esCliente, setEsCliente] = useState(contacto.es_cliente ?? false);
   const [notas, setNotas] = useState<string>(contacto.notas ?? "");
+
+  // — Campos de identidad (controlados para soportar dirty tracking y Smart-Fill) —
+  const [nombre,    setNombre]    = useState(contacto.nombre    ?? "");
+  const [apellido1, setApellido1] = useState(contacto.apellido1 ?? "");
+  const [apellido2, setApellido2] = useState(contacto.apellido2 ?? "");
+  const [razonSocial, setRazonSocial] = useState(contacto.razon_social ?? "");
+
+  // — Dirty Tracking: campos que el usuario ha editado manualmente —
+  // Regla: un campo "sucio" nunca es sobreescrito por datos externos (Google POI).
+  const [dirtyFields,      setDirtyFields]      = useState<Set<string>>(new Set());
+  const [identityConflict, setIdentityConflict] = useState<IdentityConflict>({});
+
+  function markDirty(field: string) {
+    setDirtyFields((prev) => new Set(prev).add(field));
+    // Si había un conflicto de Google para este campo, lo descartamos
+    setIdentityConflict((prev) => {
+      if (!prev[field as keyof IdentityConflict]) return prev;
+      const updated = { ...prev };
+      delete updated[field as keyof IdentityConflict];
+      return updated;
+    });
+  }
+
+  function clearIdentityConflict(field: keyof IdentityConflict) {
+    setIdentityConflict((prev) => {
+      const updated = { ...prev };
+      delete updated[field];
+      return updated;
+    });
+  }
+
+  function acceptIdentityConflict(field: keyof IdentityConflict) {
+    const val = identityConflict[field];
+    if (!val) return;
+    if (field === "razon_social") setRazonSocial(val);
+    if (field === "nombre")       setNombre(val);
+    // Aceptar el dato de Google implica que ya no es "dirty" — el usuario lo eligió
+    setDirtyFields((prev) => { const n = new Set(prev); n.delete(field); return n; });
+    clearIdentityConflict(field);
+  }
 
   // — Canales de Comunicación Directos —
   const [emailPrincipal, setEmailPrincipal] = useState(contacto.email_principal ?? "");
@@ -167,7 +216,24 @@ export function EditContactoForm({ contacto }: { contacto: Contacto }) {
   // en lugar de sobrescribir. El usuario acepta o descarta con el banner.
 
   function handleExternalDataFill(data: ExternalPoiData) {
-    const { phone, website, linkedin } = data;
+    const { phone, website, linkedin, razonSocial: googleRazonSocial, nombre: googleNombre } = data;
+
+    // ── Identidad: protegida por Dirty Tracking ──────────────────────────────
+    if (googleRazonSocial && tipo === ContactoTipo.PERSONA_JURIDICA) {
+      if (dirtyFields.has("razon_social")) {
+        // Campo sucio → guardar como conflicto, mostrar banner de sugerencia
+        setIdentityConflict((prev) => ({ ...prev, razon_social: googleRazonSocial }));
+      } else {
+        setRazonSocial(googleRazonSocial);
+      }
+    }
+    if (googleNombre && tipo === ContactoTipo.PERSONA_FISICA) {
+      if (dirtyFields.has("nombre")) {
+        setIdentityConflict((prev) => ({ ...prev, nombre: googleNombre }));
+      } else {
+        setNombre(googleNombre);
+      }
+    }
 
     if (phone) {
       const normalized = phone.startsWith("+") ? phone : `+${phone}`;
@@ -240,6 +306,13 @@ export function EditContactoForm({ contacto }: { contacto: Contacto }) {
     setTipoSociedad("");
     setResetKey((k) => k + 1);
     setFieldErrors({});
+    // Limpiar campos de identidad y dirty state al cambiar de tipo
+    setNombre("");
+    setApellido1("");
+    setApellido2("");
+    setRazonSocial("");
+    setDirtyFields(new Set());
+    setIdentityConflict({});
   }
 
   function handleFiscalIdTipoChange(newTipo: FiscalIdTipo) {
@@ -256,14 +329,15 @@ export function EditContactoForm({ contacto }: { contacto: Contacto }) {
 
     const input: UpdateContactoInput = {
       tipo,
-      nombre:        (fd.get("nombre")       as string) || undefined,
-      apellido1:     (fd.get("apellido1")    as string) || undefined,
-      apellido2:     (fd.get("apellido2")    as string) || undefined,
-      razon_social:  (fd.get("razon_social") as string) || undefined,
+      // Leer desde estado React (fuente de verdad para campos controlados)
+      // Garantiza que los valores manuales prevalezcan sobre cualquier caché de API
+      nombre:        nombre.trim()      || undefined,
+      apellido1:     apellido1.trim()   || undefined,
+      apellido2:     apellido2.trim()   || undefined,
+      razon_social:  razonSocial.trim() || undefined,
       fiscal_id_tipo: fiscalIdTipo,
       fiscal_id:     fiscalId,
       tipo_sociedad: tipoSociedad || undefined,
-      es_cliente:    esCliente,
       notas:         notas || undefined,
       email_principal: emailPrincipal || undefined,
       telefono_movil:  telefonoMovil  || undefined,
@@ -324,20 +398,71 @@ export function EditContactoForm({ contacto }: { contacto: Contacto }) {
       {tipo === ContactoTipo.PERSONA_FISICA ? (
         <div key={`pf-${resetKey}`} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <FieldGroup label="Nombre" required error={fieldErrors.nombre}>
-            <input name="nombre" type="text" defaultValue={contacto.nombre ?? ""} placeholder="María" className={fieldErrors.nombre ? inputError : inputNormal} />
+            {identityConflict.nombre && (
+              <PoiSuggestionBanner
+                value={identityConflict.nombre}
+                onAccept={() => acceptIdentityConflict("nombre")}
+                onDismiss={() => clearIdentityConflict("nombre")}
+              />
+            )}
+            <input
+              name="nombre"
+              type="text"
+              value={nombre}
+              onChange={(e) => { setNombre(e.target.value); markDirty("nombre"); }}
+              placeholder="María"
+              className={[
+                fieldErrors.nombre ? inputError : inputNormal,
+                dirtyFields.has("nombre") ? "ring-1 ring-orange-500/20 border-orange-700/50" : "",
+              ].join(" ")}
+            />
           </FieldGroup>
           <FieldGroup label="Primer apellido" error={fieldErrors.apellido1}>
-            <input name="apellido1" type="text" defaultValue={contacto.apellido1 ?? ""} placeholder="García" className={fieldErrors.apellido1 ? inputError : inputNormal} />
+            <input
+              name="apellido1"
+              type="text"
+              value={apellido1}
+              onChange={(e) => { setApellido1(e.target.value); markDirty("apellido1"); }}
+              placeholder="García"
+              className={fieldErrors.apellido1 ? inputError : inputNormal}
+            />
           </FieldGroup>
           <FieldGroup label="Segundo apellido" error={fieldErrors.apellido2}>
-            <input name="apellido2" type="text" defaultValue={contacto.apellido2 ?? ""} placeholder="López" className={fieldErrors.apellido2 ? inputError : inputNormal} />
+            <input
+              name="apellido2"
+              type="text"
+              value={apellido2}
+              onChange={(e) => { setApellido2(e.target.value); markDirty("apellido2"); }}
+              placeholder="López"
+              className={fieldErrors.apellido2 ? inputError : inputNormal}
+            />
           </FieldGroup>
         </div>
       ) : (
         <div key={`pj-${resetKey}`} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div className="sm:col-span-2">
             <FieldGroup label="Razón Social" required error={fieldErrors.razon_social}>
-              <input name="razon_social" type="text" defaultValue={contacto.razon_social ?? ""} placeholder="Empresa S.L." className={fieldErrors.razon_social ? inputError : inputNormal} />
+              {identityConflict.razon_social && (
+                <PoiSuggestionBanner
+                  value={identityConflict.razon_social}
+                  onAccept={() => acceptIdentityConflict("razon_social")}
+                  onDismiss={() => clearIdentityConflict("razon_social")}
+                />
+              )}
+              <input
+                name="razon_social"
+                type="text"
+                value={razonSocial}
+                onChange={(e) => { setRazonSocial(e.target.value); markDirty("razon_social"); }}
+                placeholder="Empresa S.L."
+                className={[
+                  fieldErrors.razon_social ? inputError : inputNormal,
+                  dirtyFields.has("razon_social") ? "ring-1 ring-orange-500/20 border-orange-700/50" : "",
+                ].join(" ")}
+              />
+              {dirtyFields.has("razon_social") && (
+                <p className="mt-1 text-[10px] text-orange-500/70">✏ Dato manual — prevalece sobre sugerencias externas</p>
+              )}
             </FieldGroup>
           </div>
           <FieldGroup label="Tipo de Sociedad" required error={fieldErrors.tipo_sociedad}>
@@ -481,8 +606,9 @@ export function EditContactoForm({ contacto }: { contacto: Contacto }) {
               value={websiteUrl}
               onChange={(e) => setWebsiteUrl(e.target.value)}
               onBlur={() => {
-                const v = websiteUrl.trim();
+                const v = websiteUrl.trim().toLowerCase();
                 if (v && !/^https?:\/\//i.test(v)) setWebsiteUrl(`https://${v}`);
+                else if (v) setWebsiteUrl(v);
               }}
               placeholder="https://www.empresa.com"
               className={fieldErrors.website_url ? inputError : inputNormal}
@@ -501,8 +627,9 @@ export function EditContactoForm({ contacto }: { contacto: Contacto }) {
               value={linkedinUrl}
               onChange={(e) => setLinkedinUrl(e.target.value)}
               onBlur={() => {
-                const v = linkedinUrl.trim();
+                const v = linkedinUrl.trim().toLowerCase();
                 if (v && !/^https?:\/\//i.test(v)) setLinkedinUrl(`https://${v}`);
+                else if (v) setLinkedinUrl(v);
               }}
               placeholder="https://linkedin.com/in/usuario"
               className={fieldErrors.linkedin_url ? inputError : inputNormal}
@@ -510,33 +637,6 @@ export function EditContactoForm({ contacto }: { contacto: Contacto }) {
           </FieldGroup>
 
         </div>
-      </div>
-
-      {/* ── Rol de Cliente ── */}
-      <div className="border-t border-zinc-800 pt-5">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={esCliente}
-          onClick={() => setEsCliente((v) => !v)}
-          className={`group flex w-full items-center gap-4 rounded-lg border px-4 py-3.5 text-left transition-colors ${
-            esCliente
-              ? "border-orange-500/40 bg-orange-500/5"
-              : "border-zinc-800 bg-zinc-800/40 hover:border-zinc-700"
-          }`}
-        >
-          <div className={`relative h-5 w-9 flex-shrink-0 rounded-full transition-colors ${esCliente ? "bg-orange-500" : "bg-zinc-700"}`}>
-            <div className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${esCliente ? "translate-x-4" : "translate-x-0.5"}`} />
-          </div>
-          <div>
-            <p className={`text-sm font-medium ${esCliente ? "text-orange-400" : "text-zinc-300"}`}>
-              Este contacto es un Cliente
-            </p>
-            <p className="text-xs text-zinc-600">
-              Habilita la facturación y el panel económico en su ficha
-            </p>
-          </div>
-        </button>
       </div>
 
       {/* ── Notas ── */}

@@ -13,12 +13,12 @@
 
 import { useTransition, useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { Mail, Smartphone, Phone, Globe, Link2, MapPin, X, CheckCircle2, Search } from "lucide-react";
+import { Mail, Smartphone, Phone, Globe, Link2, MapPin, X, CheckCircle2, Search, RotateCcw, AlertTriangle } from "lucide-react";
 import { CustomPhoneInput } from "@/app/contactos/CustomPhoneInput";
 import { SociedadCombobox } from "@/app/contactos/SociedadCombobox";
 import { CompanyAutocompleteInput } from "@/app/contactos/CompanyAutocompleteInput";
 import type { DetectedAddress } from "@/app/contactos/CompanyAutocompleteInput";
-import { createContacto } from "@/lib/actions/contactos.actions";
+import { createContacto, resurrectionRestoreContacto } from "@/lib/actions/contactos.actions";
 import type { InlineAddressData } from "@/lib/actions/contactos.actions";
 import type {
   CreateContactoInput,
@@ -35,13 +35,15 @@ const FISCAL_ID_TIPOS_PF: { value: FiscalIdTipo; label: string }[] = [
   { value: FiscalIdTipo.PASAPORTE,      label: "Pasaporte" },
   { value: FiscalIdTipo.TIE,            label: "TIE" },
   { value: FiscalIdTipo.VAT,            label: "VAT (UE)" },
+  { value: FiscalIdTipo.K,              label: "NIF K (menor español)" },
+  { value: FiscalIdTipo.L,              label: "NIF L (español en extranjero)" },
+  { value: FiscalIdTipo.M,              label: "NIF M (extranjero sin NIE)" },
   { value: FiscalIdTipo.CODIGO_SOPORTE, label: "Código de Soporte" },
   { value: FiscalIdTipo.SIN_REGISTRO,   label: "Sin Registro" },
 ];
 
 const FISCAL_ID_TIPOS_PJ: { value: FiscalIdTipo; label: string }[] = [
   { value: FiscalIdTipo.NIF,          label: "NIF" },
-  { value: FiscalIdTipo.CIF,          label: "CIF" },
   { value: FiscalIdTipo.VAT,          label: "VAT (UE)" },
   { value: FiscalIdTipo.SIN_REGISTRO, label: "Sin Registro" },
 ];
@@ -125,6 +127,16 @@ export default function NuevoContactoPage() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<ContactoFieldErrors>({});
 
+  // — Resurrección: NIF detectado en QUARANTINE —
+  type ResurrectionConflict = {
+    contactoId: string;
+    contactoName: string;
+    pendingInput: CreateContactoInput;
+    pendingAddress?: InlineAddressData;
+  };
+  const [resurrectionConflict, setResurrectionConflict] =
+    useState<ResurrectionConflict | null>(null);
+
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   function handleTipoChange(newTipo: ContactoTipo) {
@@ -191,7 +203,7 @@ export default function NuevoContactoPage() {
 
     const addressPayload: InlineAddressData | undefined = hasAddressData
       ? {
-          calle:         detectedAddress.calle         || undefined,
+          calle:         detectedAddress.calle         || "",
           ciudad:        detectedAddress.ciudad        || undefined,
           provincia:     detectedAddress.provincia     || undefined,
           codigo_postal: detectedAddress.codigo_postal || undefined,
@@ -202,8 +214,18 @@ export default function NuevoContactoPage() {
     startTransition(async () => {
       const result = await createContacto(input, addressPayload);
       if (result && !result.ok) {
-        setError(result.error);
-        if (result.fieldErrors) setFieldErrors(result.fieldErrors);
+        if (result.conflictType === "QUARANTINE_RESURRECTION") {
+          setResurrectionConflict({
+            contactoId:   result.quarantineContactoId,
+            contactoName: result.contactoName,
+            pendingInput:   input,
+            pendingAddress: addressPayload,
+          });
+          setError(null);
+        } else {
+          setError(result.error);
+          if (result.fieldErrors) setFieldErrors(result.fieldErrors);
+        }
       }
     });
   }
@@ -243,6 +265,51 @@ export default function NuevoContactoPage() {
           >
             <X className="h-3.5 w-3.5" />
           </button>
+        </div>
+      )}
+
+      {/* ── Banner: Resurrección — NIF en Cuarentena detectado ── */}
+      {resurrectionConflict && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-950/30 p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-300">
+                Contacto encontrado en el Archivo de Cuarentena
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-amber-400/80">
+                <span className="font-semibold text-amber-300">{resurrectionConflict.contactoName}</span>{" "}
+                ya existe en el sistema con este identificador fiscal, pero está archivado en cuarentena.
+                Puedes restaurarlo y actualizar sus datos con los que acabas de introducir.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => {
+                    startTransition(async () => {
+                      await resurrectionRestoreContacto(
+                        resurrectionConflict.contactoId,
+                        resurrectionConflict.pendingInput,
+                        resurrectionConflict.pendingAddress
+                      );
+                    });
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg bg-amber-500/20 px-3 py-1.5 text-xs font-semibold text-amber-300 transition-colors hover:bg-amber-500/30 disabled:opacity-50"
+                >
+                  <RotateCcw className={`h-3.5 w-3.5 ${isPending ? "animate-spin" : ""}`} />
+                  {isPending ? "Restaurando…" : "Restaurar y actualizar datos"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResurrectionConflict(null)}
+                  className="rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:text-zinc-200"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -480,8 +547,9 @@ export default function NuevoContactoPage() {
                 value={websiteUrl}
                 onChange={(e) => setWebsiteUrl(e.target.value)}
                 onBlur={() => {
-                  const v = websiteUrl.trim();
+                  const v = websiteUrl.trim().toLowerCase();
                   if (v && !/^https?:\/\//i.test(v)) setWebsiteUrl(`https://${v}`);
+                  else if (v) setWebsiteUrl(v);
                 }}
                 placeholder="https://www.empresa.com"
                 className={fieldErrors.website_url ? inputError : inputNormal}
@@ -495,8 +563,9 @@ export default function NuevoContactoPage() {
                 value={linkedinUrl}
                 onChange={(e) => setLinkedinUrl(e.target.value)}
                 onBlur={() => {
-                  const v = linkedinUrl.trim();
+                  const v = linkedinUrl.trim().toLowerCase();
                   if (v && !/^https?:\/\//i.test(v)) setLinkedinUrl(`https://${v}`);
+                  else if (v) setLinkedinUrl(v);
                 }}
                 placeholder="https://linkedin.com/in/usuario"
                 className={fieldErrors.linkedin_url ? inputError : inputNormal}
