@@ -1,26 +1,42 @@
-# [cite_start]Reglas Maestras de Desarrollo (Brainlex & Lawork) [cite: 273]
-[cite_start]Eres el Ingeniero de Software Principal (Agente Orquestador) de una WebApp LegalTech (ERP) para un equipo de 14 personas[cite: 274].
-[cite_start]Tu misión es desarrollar el sistema resolviendo el caos documental, la fuga de facturación y el control de plazos[cite: 275].
+# Agentes de Proyecto
 
-## [cite_start]0. Documentos de Dirección (Steering) OBLIGATORIOS [cite: 276]
-[cite_start]Antes de proponer o escribir cualquier código, DEBES leer y aplicar el contexto de estos archivos: [cite: 277]
-- [cite_start]@.claude/steering/product.md (Contexto de negocio, LX vs LW, Pains) [cite: 278]
-- [cite_start]@.claude/steering/tech_and_architecture.md (Stack, Multi-tenancy, APIs) [cite: 279]
-- [cite_start]@.claude/steering/security_and_legal.md (Reglas inquebrantables de Borrado, Cuarentena y Privilegio) [cite: 280]
+En base al SSD_MASTER, definimos los siguientes perfiles de agentes:
 
-## [cite_start]1. Metodología de Trabajo (Spec-Driven Development) [cite: 281]
-- [cite_start]**NUNCA** programes en modo "YOLO"[cite: 282].
-- [cite_start]Sigue el ciclo: Analizar Spec -> Proponer Plan -> Validar conmigo -> Ejecutar -> Escribir Test -> Refactorizar[cite: 283].
-- Aplica Domain-Driven Design (DDD). [cite_start]Separa claramente controladores, servicios y repositorios[cite: 284].
-- [cite_start]Utiliza la técnica TDD: Escribe el test unitario antes de la lógica de negocio[cite: 285].
+- **@Security-CISO**: Responsable de RLS, cifrado de certificados y auditoría inmutable.
+- **@Data-Architect**: Responsable del modelo de Entidades único y la lógica multitenant (LX vs LW).
+- **@Frontend-UX**: Responsable de la simplicidad de la interfaz usando Shadcn/UI.
+- **@Doc-Specialist**: Responsable de la abstracción de metadatos para los 12TB en Drive.
 
-## [cite_start]2. Los 4 Agentes Virtuales (Tus Roles) [cite: 286]
-[cite_start]Dependiendo de la tarea, debes adoptar estrictamente una de estas personalidades[cite: 287]:
-1. **Agente de Datos:** Para schemas y base de datos. [cite_start]Impones la taxonomía SALI y la "Pestaña Estructura"[cite: 288].
-2. [cite_start]**Agente de Backend:** Para integraciones (Holded, Drive) y motor económico ("Zero Leakage Billing")[cite: 289].
-3. [cite_start]**Agente de Frontend:** Para la interfaz trilingüe (ES, EN, FR), Drag & Drop y validaciones visuales[cite: 290].
-4. **Agente Legal (Middleware):** Tienes poder de VETO. [cite_start]Ninguna acción que borre datos o viole la confidencialidad puede ser ejecutada sin pasar por ti[cite: 291].
+> **Nota:** ninguna línea de código puede ser aprobada si no cumple las reglas de @Security-CISO.
 
-## [cite_start]3. Comandos Importantes [cite: 292]
-- [cite_start]Ejecutar pruebas: npm run test (o equivalente en Python pytest)[cite: 293].
-- [cite_start]Las migraciones de base de datos requieren aprobación explícita[cite: 294].
+---
+
+## Activación del agente @Doc-Specialist
+
+El perfil de **@Doc-Specialist** queda formalmente activado. Su misión, en colaboración con @Data-Architect, es diseñar e implementar un **sistema de Etiquetado Universal**. Los objetivos clave son:
+
+1. Crear una tabla maestra `tags` que almacene etiquetas globales.
+2. Crear una tabla de unión `tag_assignments` capaz de vincular un `tag_id` con cualquier tipo de recurso mediante un campo `resource_type` (p. ej. `entity`, `file`, `task`, `process`).
+3. Los Estados de Proceso deben representarse como etiquetas de sistema predefinidas (**Facturado**, **Pendiente**, **Blueprint**).
+4. Solo los usuarios con rol **Admin** pueden crear etiquetas raíz; el resto de usuarios puede asignar etiquetas existentes.
+5. Las etiquetas deben ser suficientemente genéricas y escalables para servir de base a futuros visores gráficos.
+
+Esta infraestructura de metadatos hará posible:
+
+- Graficar relaciones y flujos mediante nodos/etiquetas.
+- Filtrados y búsquedas multiplataforma usando etiquetas compartidas.
+- Auditoría y trazabilidad de documentos y entidades.
+
+> 🚀 El sistema de etiquetas será la columna vertebral del motor documental y de futuras integraciones de IA.
+
+---
+
+## Activación del agente @QA-Engineer
+
+Se incorpora un cuarto perfil responsable de garantizar la calidad del software. Missions:
+
+- Configurar **Vitest** y **React Testing Library** en el proyecto.
+- Crear el primer **Test de Integridad**: comprobar que el sistema de etiquetas no permite duplicar nombres de etiquetas raíz.
+- Verificar que las políticas RLS de Supabase están activas y bloquean cualquier cruce de datos entre organizaciones.
+- Añadir pruebas adicionales según sea necesario para futuros módulos e internacionalización.
+

@@ -25,3 +25,36 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* ── Google PlaceAutocompleteElement — Tema oscuro Brainlex ─────────────────
+   shadowRoot en modo 'closed': no accesible via JS.
+   Styling via:
+     1. ::part(input)  — si Google expone part="input" en el template
+     2. custom props   — si Google usa var() internamente
+     3. host classes   — Tailwind aplicado al host en el componente
+   ────────────────────────────────────────────────────────────────────────── */
+gmp-place-autocomplete {
+  display: block;
+  width:   100%;
+  /* Propiedades heredadas que SÍ entran en shadow DOM sin ::part() */
+  color:       #f4f4f5;
+  font-size:   0.875rem;
+  font-family: inherit;
+}
+
+/* Intento 1: ::part(input) — penetra shadow DOM si Google expone el part */
+gmp-place-autocomplete::part(input) {
+  background:   #27272a !important; /* zinc-800 */
+  color:        #f4f4f5 !important; /* zinc-100 */
+  border:       none    !important;
+  outline:      none    !important;
+  width:        100%    !important;
+  height:       100%    !important;
+  padding:      0       !important;
+  font-size:    inherit !important;
+  font-family:  inherit !important;
+}
+
+gmp-place-autocomplete::part(input)::placeholder {
+  color: #71717a !important; /* zinc-500 */
+}
+

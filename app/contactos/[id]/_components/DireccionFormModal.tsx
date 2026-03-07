@@ -11,7 +11,7 @@ import { useRouter } from "next/navigation";
 import { MapPin, Plus, X } from "lucide-react";
 import { crearDireccion, editarDireccion } from "@/lib/actions/filiacion.actions";
 import { CountrySelectorField } from "./CountrySelectorField";
-import { PlacesAutocompleteInput, type PlaceFields } from "./PlacesAutocompleteInput";
+import { PlacesAutocompleteInput } from "./PlacesAutocompleteInput";
 
 // ─── Tipo para datos de edición ───────────────────────────────────────────────
 
@@ -73,7 +73,6 @@ export function DireccionFormModal({
 }) {
   const dialogRef    = useRef<HTMLDialogElement>(null);
   const formRef      = useRef<HTMLFormElement>(null);
-  const calleRef     = useRef<HTMLInputElement>(null);
   const ciudadRef    = useRef<HTMLInputElement>(null);
   const provinciaRef = useRef<HTMLInputElement>(null);
   const cpRef        = useRef<HTMLInputElement>(null);
@@ -126,14 +125,10 @@ export function DireccionFormModal({
     // onClose se dispara via el event listener "close" de arriba
   }
 
-  // Rellena los campos de dirección cuando el usuario elige una sugerencia de Google
-  function handlePlaceSelect(fields: PlaceFields) {
-    if (calleRef.current)     calleRef.current.value     = titleCase(fields.calle);
-    if (ciudadRef.current)    ciudadRef.current.value    = titleCase(fields.ciudad);
-    if (provinciaRef.current) provinciaRef.current.value = titleCase(fields.provincia);
-    if (cpRef.current)        cpRef.current.value        = fields.codigo_postal.toUpperCase();
-    if (fields.pais)          setPais(fields.pais);
-  }
+  // Setters individuales — llamados desde PlacesAutocompleteInput al elegir sugerencia
+  const setCiudad       = (v: string) => { if (ciudadRef.current)    ciudadRef.current.value    = titleCase(v); };
+  const setProvincia    = (v: string) => { if (provinciaRef.current) provinciaRef.current.value = titleCase(v); };
+  const setCodigoPostal = (v: string) => { if (cpRef.current) cpRef.current.value = v.toUpperCase(); };
 
   const errors      = showErrors && state?.success === false ? state.errors : {};
   const showEtiqueta = tipoDireccion === "WORKPLACE" || tipoDireccion === "OTRO";
@@ -224,16 +219,16 @@ export function DireccionFormModal({
             <div>
               <label htmlFor="dir-calle" className={labelCls}>Calle / Vía *</label>
               <PlacesAutocompleteInput
-                ref={calleRef}
                 id="dir-calle"
                 name="calle"
-                type="text"
                 required
                 defaultValue={initialData?.calle ?? ""}
-                onChange={applyTitleCase}
                 placeholder="Empieza a escribir para buscar…"
                 className={inputCls(!!errors?.calle)}
-                onPlaceSelect={handlePlaceSelect}
+                setCiudad={setCiudad}
+                setCodigoPostal={setCodigoPostal}
+                setProvincia={setProvincia}
+                setPais={setPais}
               />
               {errors?.calle && (
                 <p className="mt-1 text-xs text-red-500">{errors.calle[0]}</p>

@@ -2,111 +2,175 @@
 // app/contactos/[id]/_components/PlacesAutocompleteInput.tsx
 //
 // @role: Agente de Frontend (Client Component)
-// @spec: Micro-Spec 2.7 — Campo Calle con Google Places Autocomplete
+// @spec: Micro-Spec 2.7 — Campo Calle con Google PlaceAutocompleteElement
 //
-// Wrapper del input de calle que inicializa google.maps.places.Autocomplete.
-// Cuando el usuario elige una sugerencia, el callback onPlaceSelect devuelve
-// los componentes parseados (calle, ciudad, provincia, cp, pais ISO-2) para
-// que el formulario padre rellene los campos restantes automáticamente.
-//
-// Requiere: NEXT_PUBLIC_GOOGLE_MAPS_API_KEY en .env
-//           @googlemaps/js-api-loader  @types/google.maps
+// Arquitectura:
+//  UI     → gmp-place-autocomplete es el ÚNICO input visible.
+//  FORM   → <input type="hidden"> lleva name/value al form (no es visible).
+//  SHADOW → modo 'closed'. Styling via globals.css ::part(input) + herencia.
+//  DATOS  → gmp-select (API weekly) → placePrediction.toPlace() → fetchFields → setters.
 // ============================================================================
 "use client";
 
-import { forwardRef, useEffect, useRef } from "react";
-import { Loader } from "@googlemaps/js-api-loader";
+import { useEffect, useRef } from "react";
+import { setOptions, importLibrary } from "@googlemaps/js-api-loader";
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
+// ─── Tipos internos ───────────────────────────────────────────────────────────
 
-export type PlaceFields = {
-  calle:         string;
-  ciudad:        string;
-  provincia:     string;
-  codigo_postal: string;
-  pais:          string; // ISO 3166-1 alpha-2 (ej: "ES")
+type AnyAddressComp = {
+  types:       string[];
+  longText?:   string | null;
+  shortText?:  string | null;
+  long_name?:  string;
+  short_name?: string;
 };
 
-interface Props extends React.InputHTMLAttributes<HTMLInputElement> {
-  onPlaceSelect: (fields: PlaceFields) => void;
+// ─── Props ────────────────────────────────────────────────────────────────────
+
+interface Props {
+  /** Nombre del campo en FormData (para el input hidden) */
+  name?:            string;
+  id?:              string;
+  required?:        boolean;
+  defaultValue?:    string;
+  placeholder?:     string;
+  /** Clases Tailwind que se aplican al host gmp-place-autocomplete */
+  className?:       string;
+  /** Setters individuales — el componente los llama al seleccionar una sugerencia */
+  setCiudad:        (v: string) => void;
+  setCodigoPostal:  (v: string) => void;
+  setProvincia:     (v: string) => void;
+  setPais:          (v: string) => void;
 }
 
-// ─── Singleton Loader — se instancia una sola vez por key ────────────────────
+// ─── Helper de extracción ─────────────────────────────────────────────────────
 
-let loaderPromise: Promise<typeof google> | null = null;
-
-function getLoader(apiKey: string): Promise<typeof google> {
-  if (!loaderPromise) {
-    loaderPromise = new Loader({
-      apiKey,
-      version: "weekly",
-      libraries: ["places"],
-    }).load();
-  }
-  return loaderPromise;
+function getComponent(comps: AnyAddressComp[], type: string, short = false): string {
+  const comp = comps.find((c) => Array.isArray(c.types) && c.types.includes(type));
+  if (!comp) return "";
+  if (short) return comp.shortText ?? comp.short_name ?? "";
+  return comp.longText ?? comp.long_name ?? "";
 }
+
+// ─── Constante de API key ─────────────────────────────────────────────────────
+
+const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 
-export const PlacesAutocompleteInput = forwardRef<HTMLInputElement, Props>(
-  function PlacesAutocompleteInput({ onPlaceSelect, ...inputProps }, forwardedRef) {
-    const internalRef = useRef<HTMLInputElement>(null);
+export function PlacesAutocompleteInput({
+  name, id, required, defaultValue, placeholder, className,
+  setCiudad, setCodigoPostal, setProvincia, setPais,
+}: Props) {
+  const mountRef  = useRef<HTMLDivElement>(null);
+  const hiddenRef = useRef<HTMLInputElement>(null);
 
-    // Merge refs: usamos internalRef para la lógica; forwardedRef para el padre
-    function setRefs(el: HTMLInputElement | null) {
-      (internalRef as React.MutableRefObject<HTMLInputElement | null>).current = el;
-      if (typeof forwardedRef === "function") forwardedRef(el);
-      else if (forwardedRef) (forwardedRef as React.MutableRefObject<HTMLInputElement | null>).current = el;
+  useEffect(() => {
+    if (!apiKey || !mountRef.current) return;
+
+    // setOptions dentro de useEffect → evita el warning en Fast Refresh.
+    // El flag en window sobrevive a re-evaluaciones del módulo (HMR).
+    if (!(window as { __gmpOpts?: boolean }).__gmpOpts) {
+      (window as { __gmpOpts?: boolean }).__gmpOpts = true;
+      setOptions({ key: apiKey, v: "weekly" });
     }
 
-    useEffect(() => {
-      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-      if (!apiKey) return; // Sin key → input funciona como campo de texto normal
+    type PlacesLibraryWithPAE = google.maps.PlacesLibrary & {
+      PlaceAutocompleteElement: typeof google.maps.places.PlaceAutocompleteElement;
+    };
 
-      let listener: google.maps.MapsEventListener | undefined;
-      let mapsInstance: typeof google.maps | undefined;
+    // Flag de cancelación: si el cleanup corre antes de que la Promise resuelva
+    // (React Strict Mode monta dos veces), evita montar el primer elemento.
+    let cancelled = false;
+    let gmpEl: google.maps.places.PlaceAutocompleteElement | undefined;
 
-      getLoader(apiKey).then((g) => {
-        const el = internalRef.current;
-        if (!el) return;
+    (importLibrary("places") as Promise<PlacesLibraryWithPAE>).then(
+      ({ PlaceAutocompleteElement }) => {
+        if (cancelled || !mountRef.current) return;
 
-        mapsInstance = g.maps;
+        const el = new PlaceAutocompleteElement({ types: ["address"] });
+        gmpEl = el;
 
-        const ac = new g.maps.places.Autocomplete(el, {
-          types:  ["address"],
-          fields: ["address_components"],
-        });
+        // Clases Tailwind al host → fondo/borde/radio via globals.css
+        (el as HTMLElement).className = className ?? "";
+        // color es propiedad heredada → cascada en shadow DOM
+        (el as HTMLElement).style.color = "white";
+        if (id)          (el as HTMLElement).id = id;
+        if (placeholder) el.setAttribute("placeholder", placeholder);
 
-        listener = ac.addListener("place_changed", () => {
-          const place = ac.getPlace();
-          if (!place.address_components) return;
+        mountRef.current.appendChild(el);
 
-          const get = (type: string, short = false) =>
-            place.address_components!.find((c) => c.types.includes(type))?.[
-              short ? "short_name" : "long_name"
-            ] ?? "";
-
-          const route = get("route");
-          const num   = get("street_number");
-
-          onPlaceSelect({
-            // Google ya puso el texto en el input; normalizamos la calle
-            calle:         route ? `${route}${num ? `, ${num}` : ""}` : el.value,
-            ciudad:        get("locality") || get("postal_town"),
-            provincia:     get("administrative_area_level_2") || get("administrative_area_level_1"),
-            codigo_postal: get("postal_code"),
-            pais:          get("country", /* short= */ true),
-          });
-        });
-      });
-
-      return () => {
-        if (listener && mapsInstance) {
-          mapsInstance.event.removeListener(listener);
+        // Valor inicial en modo edición
+        if (defaultValue) {
+          try {
+            (el as HTMLElement & { value?: string }).value = String(defaultValue);
+          } catch { /* no-op */ }
         }
-      };
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    return <input ref={setRefs} {...inputProps} />;
-  },
-);
+        // ── Evento de selección ──────────────────────────────────────────────
+        // API weekly: el evento es "gmp-select" y lleva `placePrediction`,
+        // no `place`. Se convierte con .toPlace() y luego fetchFields().
+        el.addEventListener("gmp-select", async (evt: Event) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const prediction = (evt as any).placePrediction;
+          if (!prediction) {
+            console.warn("[Places] gmp-select sin placePrediction", evt);
+            return;
+          }
+
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const place: google.maps.places.Place = (prediction as any).toPlace();
+
+          let comps: AnyAddressComp[] = [];
+          try {
+            await place.fetchFields({ fields: ["addressComponents", "formattedAddress"] });
+            comps = (place.addressComponents ?? []) as AnyAddressComp[];
+          } catch {
+            // fetchFields puede fallar si Places API (New) no está habilitada en GCP
+          }
+
+          // ── Extraer campos ────────────────────────────────────────────────
+          const route  = getComponent(comps, "route");
+          const num    = getComponent(comps, "street_number");
+          const calle  = route
+            ? `${route}${num ? `, ${num}` : ""}`
+            : (place.formattedAddress?.split(",")[0] ?? "");
+
+          const ciudad = getComponent(comps, "locality") || getComponent(comps, "postal_town");
+          const prov   = getComponent(comps, "administrative_area_level_2")
+                      || getComponent(comps, "administrative_area_level_1");
+          const cp     = getComponent(comps, "postal_code");
+          const pais   = getComponent(comps, "country", /* short= */ true);
+
+          // Actualizar hidden input (FormData.get("calle"))
+          if (hiddenRef.current) hiddenRef.current.value = calle;
+
+          // Llamar setters solo si hay valor — no sobreescribir con string vacío
+          // (Google no siempre devuelve postal_code para calles sin número)
+          if (ciudad) setCiudad(ciudad);
+          if (cp)     setCodigoPostal(cp);
+          if (prov)   setProvincia(prov);
+          if (pais)   setPais(pais);
+        });
+      },
+    );
+
+    return () => { cancelled = true; gmpEl?.remove(); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <>
+      {/* display:contents → sin espacio en layout; gmp ocupa el slot directamente */}
+      <div ref={mountRef} style={{ display: "contents" }} />
+
+      {/* Input hidden: lleva name + value al FormData. NO es visible. */}
+      <input
+        ref={hiddenRef}
+        type="hidden"
+        name={name}
+        required={required}
+        defaultValue={String(defaultValue ?? "")}
+      />
+    </>
+  );
+}
