@@ -58,12 +58,6 @@ enum FiscalIdTipo {
   SIN_REGISTRO
 }
 
-/// Tipo de teléfono para integraciones SMS/WhatsApp.
-enum TipoTelefono {
-  MOVIL
-  FIJO
-}
-
 /// Acciones registradas en el AuditLog inmutable.
 enum AuditAction {
   CREATE
@@ -92,8 +86,9 @@ model SociedadHolding {
   activa      Boolean @default(true)
 
   /// Meses de retención en cuarentena para esta Sociedad.
-  /// Por defecto: 48 meses (4 años fiscal — art. 30 CComercio, Ley 58/2003 GILF).
-  quarantine_months Int @default(48)
+  /// Por defecto: 60 meses (5 años — art. 70 Ley 58/2003 GILF + prescripción mercantil).
+  /// Editable por el Administrador. Mínimo legal recomendado: 36 meses.
+  quarantine_months Int @default(60)
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -131,10 +126,13 @@ model Contacto {
   fiscal_id      String?
   fiscal_id_tipo FiscalIdTipo?
 
-  // — Datos de contacto —
-  email          String?      @unique /// NULL no viola @unique (PostgreSQL) → varios contactos sin email son válidos
-  telefono       String?
-  tipo_telefono  TipoTelefono @default(MOVIL)
+  // — Canales de Comunicación Directos —
+  email_principal String?  @unique  /// NULL no viola @unique — varios contactos sin email son válidos
+  telefono_movil  String?           /// Número E.164 de teléfono móvil
+  telefono_fijo   String?           /// Número E.164 de teléfono fijo/central
+  website_url     String?           /// URL del sitio web oficial (normalizada a https://)
+  linkedin_url    String?           /// URL del perfil de LinkedIn
+  canal_preferido String   @default("EMAIL") /// Canal oficial: "EMAIL" | "MOVIL"
 
   // — Roles (no excluyentes) —
   es_cliente  Boolean @default(false)
@@ -148,6 +146,16 @@ model Contacto {
   quarantine_reason     String?   /// Requerido cuando status = QUARANTINE
   quarantine_expires_at DateTime? /// Plazo asignado por Agente Legal
   forgotten_at          DateTime? /// Timestamp del crypto-shredding GDPR
+
+  // — Campos Fiscales Avanzados (Micro-Spec 2.1) ——————————————————————————————
+  // Solo editables por rol Admin / gestor fiscal autorizado.
+  // prorrata_pct: ZONA VEDADA — no tocar sin CTO + revisión legal (@ARCHITECTURE_RULES #1)
+  cnae               String?  /// Código Nacional de Actividades Económicas
+  iae                String?  /// Epígrafe del Impuesto de Actividades Económicas
+  prorrata_pct       Int?     /// % de prorrata IVA (0–100). ZONA VEDADA: no modificar sin CTO
+  hacienda_status    String?  /// Estado censal AEAT (Alta/Baja/en trámite + fecha comprobación)
+  last_accounts_year Int?     /// Último año de cuentas anuales presentadas en el Registro
+  last_books_year    Int?     /// Último año de libros contables cerrados formalmente
 
   // — Notas libres —
   notas String?

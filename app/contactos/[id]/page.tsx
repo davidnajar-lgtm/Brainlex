@@ -21,6 +21,8 @@ import type { LucideIcon } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { ContactoTipo } from "@prisma/client";
 import { TabFiliacionClient } from "./_components/TabFiliacionClient";
+import { TabOperativa }       from "./_components/TabOperativa";
+import { TabAdmin }           from "./_components/TabAdmin";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -104,7 +106,7 @@ const TAB_META: Record<TabValue, { label: string; description: string; icon: Luc
   vision:     { label: "Visión General",           icon: Activity,    description: "Resumen ejecutivo: actividad reciente, KPIs y alertas del contacto." },
   filiacion:  { label: "Filiación y Canales",      icon: Contact,     description: "Datos de contacto, domicilios, canales de comunicación y preferencias." },
   operativa:  { label: "Operativa",                icon: Briefcase,   description: "Expedientes activos, tareas pendientes y línea de tiempo operativa." },
-  admin:      { label: "Administración",           icon: ShieldCheck, description: "Facturación, documentos fiscales, contratos y cumplimiento normativo." },
+  admin:      { label: "Administración",           icon: ShieldCheck, description: "Ciclo de vida, historial de auditoría y cumplimiento normativo (RGPD)." },
   ecosistema: { label: "Ecosistema",               icon: Network,     description: "Relaciones, personas vinculadas, sociedades participadas y red de contactos." },
   boveda:     { label: "La Bóveda",                icon: FolderLock,  description: "Repositorio de documentos privados, certificados y archivos sensibles." },
 };
@@ -132,14 +134,11 @@ export default async function ContactoFichaPage({
   const displayName = getDisplayName(contacto);
   const initials    = getInitials(displayName);
 
-  // Pestaña activa: "admin" requiere es_cliente, si no → fallback a "vision"
-  const rawTab    = (TAB_ORDER.includes(tab as TabValue) ? tab : "vision") as TabValue;
-  const activeTab = rawTab === "admin" && !contacto.es_cliente ? "vision" : rawTab;
+  // Pestaña activa: cualquier valor de TAB_ORDER es válido; fallback a "vision"
+  const activeTab = (TAB_ORDER.includes(tab as TabValue) ? tab : "vision") as TabValue;
 
-  // Pestañas visibles (admin es condicional)
-  const visibleTabs = TAB_ORDER.filter(
-    (v) => v !== "admin" || contacto.es_cliente,
-  );
+  // Todas las pestañas son visibles (Administración ahora incluye Compliance para todos)
+  const visibleTabs = TAB_ORDER;
 
   return (
     <div className="space-y-5">
@@ -205,33 +204,49 @@ export default async function ContactoFichaPage({
                 </div>
               )}
 
-              {contacto.email && (
+              {contacto.email_principal && (
                 <div>
                   <dt className="text-[11px] font-semibold uppercase tracking-wider text-zinc-600">
                     Email
                   </dt>
                   <dd className="mt-0.5 truncate">
                     <a
-                      href={`mailto:${contacto.email}`}
+                      href={`mailto:${contacto.email_principal}`}
                       className="text-xs text-orange-400 hover:text-orange-300 transition-colors"
                     >
-                      {contacto.email}
+                      {contacto.email_principal}
                     </a>
                   </dd>
                 </div>
               )}
 
-              {contacto.telefono && (
+              {contacto.telefono_movil && (
                 <div>
                   <dt className="text-[11px] font-semibold uppercase tracking-wider text-zinc-600">
-                    Teléfono
+                    Móvil
                   </dt>
                   <dd className="mt-0.5">
                     <a
-                      href={`tel:${contacto.telefono}`}
+                      href={`tel:${contacto.telefono_movil}`}
                       className="font-mono text-xs text-zinc-300 hover:text-zinc-100 transition-colors"
                     >
-                      {contacto.telefono}
+                      {contacto.telefono_movil}
+                    </a>
+                  </dd>
+                </div>
+              )}
+
+              {contacto.telefono_fijo && (
+                <div>
+                  <dt className="text-[11px] font-semibold uppercase tracking-wider text-zinc-600">
+                    Fijo
+                  </dt>
+                  <dd className="mt-0.5">
+                    <a
+                      href={`tel:${contacto.telefono_fijo}`}
+                      className="font-mono text-xs text-zinc-300 hover:text-zinc-100 transition-colors"
+                    >
+                      {contacto.telefono_fijo}
                     </a>
                   </dd>
                 </div>
@@ -298,6 +313,15 @@ export default async function ContactoFichaPage({
           {/* ── Contenido del módulo activo ── */}
           {activeTab === "filiacion" ? (
             <TabFiliacionClient contacto={contacto} displayName={displayName} />
+          ) : activeTab === "operativa" ? (
+            <TabOperativa contactoId={contacto.id} />
+          ) : activeTab === "admin" ? (
+            <TabAdmin
+              contactoId={contacto.id}
+              status={contacto.status}
+              quarantineReason={contacto.quarantine_reason}
+              quarantineExpiresAt={contacto.quarantine_expires_at}
+            />
           ) : (
             <TabPlaceholder
               label={TAB_META[activeTab].label}

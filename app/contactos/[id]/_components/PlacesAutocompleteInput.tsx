@@ -84,8 +84,13 @@ export function PlacesAutocompleteInput({
     let cancelled = false;
     let gmpEl: google.maps.places.PlaceAutocompleteElement | undefined;
 
-    (importLibrary("places") as Promise<PlacesLibraryWithPAE>).then(
-      ({ PlaceAutocompleteElement }) => {
+    (importLibrary("places") as Promise<PlacesLibraryWithPAE>)
+      .catch((err: unknown) => {
+        console.error("[Places] importLibrary('places') FAILED:", err);
+      })
+      .then((lib) => {
+        if (!lib) return; // capturado en el .catch anterior
+        const { PlaceAutocompleteElement } = lib;
         if (cancelled || !mountRef.current) return;
 
         const el = new PlaceAutocompleteElement({ types: ["address"] });

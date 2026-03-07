@@ -152,10 +152,10 @@ function ContactosTable({ contactos }: { contactos: Contacto[] }) {
                 {getFiscalId(c)}
               </td>
               <td className="hidden px-5 py-3.5 text-xs text-zinc-400 md:table-cell">
-                {c.email ?? <span className="text-zinc-600">—</span>}
+                {c.email_principal ?? <span className="text-zinc-600">—</span>}
               </td>
               <td className="hidden px-5 py-3.5 font-mono text-xs text-zinc-400 md:table-cell">
-                {c.telefono ?? <span className="text-zinc-600">—</span>}
+                {c.telefono_movil ?? c.telefono_fijo ?? <span className="text-zinc-600">—</span>}
               </td>
               <td className="px-5 py-3.5">
                 <TipoBadge tipo={c.tipo} />

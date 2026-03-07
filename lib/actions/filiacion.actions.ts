@@ -10,6 +10,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { isValidPhoneNumber } from "libphonenumber-js";
 import { prisma } from "@/lib/prisma";
+import { normalizeAddress } from "@/lib/utils/normalizeAddress";
 
 // ─── Result type ──────────────────────────────────────────────────────────────
 
@@ -18,9 +19,6 @@ export type ActionResult =
   | { success: false; errors: Partial<Record<string, string[]>> };
 
 // ─── Helpers de formateo (aplicados en el backend antes del INSERT) ───────────
-
-const toTitleCase = (str: string) =>
-  str.toLowerCase().replace(/\b\w/g, (s) => s.toUpperCase());
 
 const toUpperTrim = (str: string) => str.toUpperCase().trim();
 
@@ -143,10 +141,10 @@ export async function crearDireccion(
   const data = {
     ...parsed.data,
     etiqueta:      parsed.data.etiqueta ? toUpperTrim(parsed.data.etiqueta) : undefined,
-    calle:         toTitleCase(parsed.data.calle),
-    calle_2:       parsed.data.calle_2  ? toTitleCase(parsed.data.calle_2)  : undefined,
-    ciudad:        parsed.data.ciudad    ? toTitleCase(parsed.data.ciudad)    : undefined,
-    provincia:     parsed.data.provincia ? toTitleCase(parsed.data.provincia) : undefined,
+    calle:         normalizeAddress(parsed.data.calle),
+    calle_2:       parsed.data.calle_2  ? normalizeAddress(parsed.data.calle_2)  : undefined,
+    ciudad:        parsed.data.ciudad    ? normalizeAddress(parsed.data.ciudad)    : undefined,
+    provincia:     parsed.data.provincia ? normalizeAddress(parsed.data.provincia) : undefined,
     codigo_postal: parsed.data.codigo_postal
       ? toUpperTrim(parsed.data.codigo_postal)
       : undefined,
@@ -251,10 +249,10 @@ export async function editarDireccion(
   const data = {
     tipo:          parsed.data.tipo,
     etiqueta:      parsed.data.etiqueta ? toUpperTrim(parsed.data.etiqueta) : null,
-    calle:         toTitleCase(parsed.data.calle),
-    calle_2:       parsed.data.calle_2  ? toTitleCase(parsed.data.calle_2)  : null,
-    ciudad:        parsed.data.ciudad    ? toTitleCase(parsed.data.ciudad)    : null,
-    provincia:     parsed.data.provincia ? toTitleCase(parsed.data.provincia) : null,
+    calle:         normalizeAddress(parsed.data.calle),
+    calle_2:       parsed.data.calle_2  ? normalizeAddress(parsed.data.calle_2)  : null,
+    ciudad:        parsed.data.ciudad    ? normalizeAddress(parsed.data.ciudad)    : null,
+    provincia:     parsed.data.provincia ? normalizeAddress(parsed.data.provincia) : null,
     codigo_postal: parsed.data.codigo_postal ? toUpperTrim(parsed.data.codigo_postal) : null,
     pais:          parsed.data.pais,
     es_principal:  parsed.data.es_principal,

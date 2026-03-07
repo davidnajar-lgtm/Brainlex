@@ -23,6 +23,7 @@ Documento de referencia para el equipo de desarrollo. Estas reglas son **inquebr
 - La API key se gestiona exclusivamente vía `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` en `.env.local`.
 - Los campos `ciudad`, `provincia`, `codigo_postal` y `pais` se rellenan automáticamente desde `address_components` de Google. El usuario puede editarlos manualmente después.
 - **Nunca** hacer geocoding en el cliente sin pasar por un Server Action (rate limiting + seguridad de key).
+- **Detalles de implementación (API weekly 2026):** el evento es `gmp-select` (no `gmp-placeselect`); el place se obtiene via `event.placePrediction.toPlace()` + `fetchFields`. El CP solo se devuelve para direcciones con número de portal.
 
 ## 4. Borrado de Datos — Soft Delete Obligatorio
 
@@ -37,4 +38,26 @@ Documento de referencia para el equipo de desarrollo. Estas reglas son **inquebr
 
 ---
 
-*Última actualización: 2026-03-06 — CTO Brainlex*
+## 6. Estado del Proyecto — Hoja de Ruta
+
+### ✅ FASE 1 — Filiación (COMPLETADA 2026-03-07)
+
+Módulo de contactos 100% operativo:
+- Ficha de contacto (PF/PJ): identidad, fiscal IDs, teléfonos, emails, redes sociales.
+- Direcciones: CRUD completo + Google Places Autocomplete (Web Component `gmp-place-autocomplete`).
+- Validaciones server-side con Zod + Server Actions (`filiacion.actions.ts`).
+- Soft delete implementado en todas las entidades críticas.
+- RLS activo en todas las tablas del módulo.
+
+### 🔜 FASE 2 — La Bóveda Documental (SIGUIENTE)
+
+Gestión documental sobre Google Drive como capa de almacenamiento:
+- Estructura de carpetas por contacto/expediente en Drive (abstraction layer).
+- Subida, visualización y descuento de documentos desde la app.
+- Integración con Google Drive API (Server Actions, nunca cliente directo).
+- Etiquetado SALI y metadatos de documentos.
+- Control de acceso por rol y tenant.
+
+---
+
+*Última actualización: 2026-03-07 — CTO Brainlex*

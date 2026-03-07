@@ -1,0 +1,126 @@
+Background:
+LX es una sociedad limitada en España que presta servicios de asesoría jurídica principalmente mercantil, procesal, asesoría fiscal y gestión contable, laboral (prestada por un externo), declaraciones tributarias y estadísticas, también asistencia en la inversión en españa lo que conlleva una parte jurídica y una parte de compliance en el blanqueo de capitales, aperturas de cuentas bancarias, obtención de ID como nie o nif para las partes, etc. Nuestra clientela son personas físicas y jurídicas de España y de muchos países del mundo. Podríamos decir que nuestros clientes son en un 80% extranjeros y un 20% españoles. Tenemos muchos servicios diferentes y soportamos gastos que repercutimos y suplidos que pagamos en el nombre del cliente. Tenemos diferentes pains:
+- El principal es la gestión documental, nunca encontramos nada, y tardamos mucho tiempo en encontrar lo que necesitamos y luego no sacamos provecho de lo que hemos venido haciendo para reutilizarlo cuando se pueda en otros servicios
+- Se complica mucho el control de los gastos y suplidos, del tiempo incurrido por los empleados, y de la facturación para que nada se quede sin registrar. Facturar es un infierno
+- No tenemos un seguimiento de las personas que contactan con nosotros, y el exceso de trabajo nos impide contestar con propuestas rápidamente y luego hacer un seguimiento. 
+- Hemos notado que si no informamos de los precios antes de actuar, al margen de que no cobramos según la política de precios, los clientes se niegan a asumir el pago del servicio porque no les hemos dado el precio antes, a pesar de que quedan encantados por el servicio prestado
+- Utilizamos mucho los certificados digitales y es complejo su petición y control de cuando hay que renovarlos, a pesar de hacerlo mediante una herramienta externa
+- Hay muchas tareas que tienen un deadline y a veces se nos pasan
+
+Caso específico: un servicio es relativo al movimiento de personas desde el extranjero hacia España, generalmente son empleados que vienen a empresas de construcción, españolas o extranjeras que están construyendo. Tenemos que asegurar una serie de requisitos de prevención de riesgos laborales, de documentación, etc esta documentación hay que subirla a plataformas CAE. En este año 2026 he separado estos servicios en otra empresa y no se si esto es otro proyecto, o simplemente tengo que hacer una estructura que luego podamos aprovechar para la otra empresa que se llama LW, con sus bases de datos, etc… hay clientes que son comunes a las dos empresas, pero están recibiendo sus facturas desde cada una de las entidades. 
+Quiero utilizar holded para la contabilidad
+Somos 12 personas en LX y 2 en LW. Yo trabajo en las dos.
+No podemos atender toda la demanda de nuestros clientes a pesar de que contratamos empleados continuamente. 
+Tenemos mucho movimiento y emitimos aproximadamente unas 1500 facturas anuales.
+
+Respecto a la documentación, llega por cualquier medio:
+- Por email, en papel, por whatsapp, en reuniones
+- Hay clientes que quieren seguridad al entregarnos su documentación
+
+Actualmente tenemos respecto a la documentación variedad de fuentes…y eso es un descontrol:
+- Goolge drive, con unidades compartidas además con externos
+- Un cloud privado de la empresa Wolters kluver que lo deja todo bajo control pero es extremadamente lenta
+- Programas independientes de contabilidad, cuentas anuales, emisión de facturas, bases de datos
+- Un programa para controlar los procesos judiciales que se llama sudespacho, en el que se gestionan los expedientes, pero en el que nunca encontramos nada. Tiene su cloud propio.
+- Los usuarios, por exceso de trabajo, no suben todo los archivos o lo trabajado a los repositorios comunes, luego dejan la empresa y vamos concatenando problemas de documentación
+- Tenemos todo en un 95% digitalizado, pero hay documentación en papel o original que no podemos evitar
+- Estamos hablado de bastantes teras, posiblemente unos 10-12 teras.
+- Principalmente los archivos son Excel Google sheets, Word Googlesheet, pdf, imagenes. También videos de cursos o de juicios.
+- Respecto a los datos: económicos, sanitarios y financieros, contabilidades, etc y personales, identificaciones con datos personales, familiares, datos de contacto y direcciones, cuentas bancarias,etc
+- No tenemos establecidos procesos de obtención de documentos firmados por los clientes, ni para los datos, ni para la confidencialidad, ni para enviarles recibos bancarios, ni para la aceptación de propuestas. No somos capaces de emitir facturas en plazo para los clientes que tienen cuotas
+- No podemos seguir cuando vencen o expiran los documentos, y eso nos atrasa en las prestaciones de servicios
+- No podemos informar a los clientes regularmente del avance o peticiones que necesitamos de ellos
+- Los empleados se olvidan de apuntar trabajos que hacen y al final quedan sin facturar
+- Se pierde el rastro de gastos o suplidos o de como se han pagado, lo que afecta a la contabilidad y a la rentabilidad final de la empresa
+- Necesitamos también firmar documentos mediante firma electrónica
+- Necesitamos grabar, resumir y tener task list de las reuniones que hacemos físicas o virtuales.
+- Un dolor de cabeza es el nombre de los archivos que debe estar unificado, el guardarlo lo más fácil posible en la carpeta que corresponda o el formato de todo lo que escribamos en la Web app para evitar errores y facilitar la búsqueda de cualquier cosa. Como hay muchas carpetas, expedientes, etc, pretendía un guardado automatizado, pero es difícil incluso aplicando la IA, al margen del coste que significa lo anterior.
+Ahora te voy a indicar cuales son mis requisitos, o lo que pienso que debería construir. Estoy abierto a modificar esto si es mejorable, siempre que el coste sea asumible y controlable en todo momento. también estoy dispuesto a realizar la implementación del código con la ia que me recomiendes, usando agentes y subagentes, o no. Tu eres el especialista.
+He intentado construir esto en Google studio, y no pudo afrontarlo. Errores continuos. He intentado hacerlo en firebase con ia, y lo mismo. Ahora estoy utilizando cursor y se me cuelga continuamente, asi que necesito una estructura de desarrollo que aguante lo que vamos a hacer, pues el proyecto es realmente de envergadura.
+Voy a dedicar el tiempo que sea necesario al desarrollo porque el descontrol que tenemos ahora nos está haciendo perder clientes y es nuestra herramienta principal, mucho más que el conocimiento en el desarrollo concreto del servicio, sino somos capaces de controlarlo y de comunicarlo eficientemente.  Si puedo invertir para obtener un buen producto.
+Tengo un panel izquierdo con las opciones:
+- Panel de control del usuario
+- Mis tareas
+- Explorador Drive
+- Directorio
+- Listados
+- Subir archivos
+- Generador de Docs
+- Auditoria
+- Portal del usuario
+- Administración
+- Identificación del usuario para salir de la sesión
+Previamente a esto había una atenticación para dar de alta al usuario, para acceder o para recuperar la contraseña
+
+Empezaré por administración:
+- Apartado “personal” para gestionar empleados, roles y tarifas por horas: editar y borrar usuarios, aquí solo pedía nombre y email
+- Taxonomía: definir etiquetas para expedientes, roles y documentos. Etiquetas para las carpetas, documentos, clientes, expedientes, departamentos, roles de contactos asociados a los expedientes, tipo de actividad dentro del expedient, por ejemplo Demanda, o Comunicación a contrato, notificación juzgado, reunión, llamada…
+- Sociedades para controlar entidades y grupo corporativo (porque inicialmente pensaba utilizar la misma webapp para LX y LW, y simplemente en los expedientes asignar una empresa facturadora y así poder emitir los datos para exportar a Holded donde corresponda. Ahí podía dar de alta a la empresa, definir si era una persona física o jurídica, su nombre comercial y la razón social o nombre apellido1, apellido 2, la cuenta contable , identificación fiscal (nif, cif, nie, dni, pasaporte, VAT, TIE, numero de registro extranjero, código soporte, sin registro), cuenta bancaria
+- Carpetas para crear plantillas de directorios automatizados para los clientes, ahí podía generar una plantilla de carpetas y subcarpetas que se pueden añadir en los expedientes (dentro) o directamente en un cliente.  
+- Blueprints, para definir secuencias estandarizadas de hitos y tareas
+- Maestros, para administrar las tablas de países, prefijos telefónicos y cuentas contables, unidades de negocio dentro de las empresas de facturación, métodos de pago para asignarlo a los gastos y suplidos, roles para lo que llamaré Organos de administración (ya verás más tarde)
+
+
+
+Te voy a explicar la parte quizá más compleja:
+
+Directorio: yo distingo entre lo que son clientes ( a los que les voy a facturar) o contactos. Un contacto es cualquier persona que puede estar relacionada con las empresas de facturación, o con un cliente, por ejemplo ana perez, puede ser una contraria o un périto en un expediente, o puede ser una persona que le pago una comisión por un servicio que me ha proporcionado y que se convierte en un cliente, o un pre-cliente, porque nunca le he facturado aún. Puede ocurrir que un contacto se convierta en cliente, y que un cliente deje de serlo, pero pase a ser un contacto. Ello complica en el sentido que para evitar problemas futuros, puse los mismos campos en las fichas, para que la conversión fuera equitativa (mismos campos requeridos) y que los documentos relativos a cada uno de ellos, nunca se perdiera. Por eso al crear un cliente, siempre hay dos carpetas automáticamente creadas: una carpeta recoge todos los documentos que tenía en el caso de que fuera anteriormente un cliente. Si un cliente dejaba de serlo para ser un contacto, sus carpetas como clientes, sus expedientes…no se perdían, pues debo guardarlos por seguridad y por legalidad. Al mismo tiempo creaba otra carpeta automática por lo siguiente: cualquier servicio que se hace es un expediente. Ese expediente tiene sus carateristicas propias que luego te comentaré, pero hay clientes que les hacemos la contabilidad, o las declaraciones continuamente, y por tanto, tenía una carpeta de actuaciones fuera del expediente. Para llevar la contabilidad, podía escoger una plantilla de un año, en el que hay subcarpetas de contabilidad, declaraciones, etc… lo que hubiera definido, pero en la carpeta de servicios fuera de expediente, por ejemplo ponía una tramitación del pago de una multa, o servicios que no merecen un expediente como tal con la complejidad que necesitan, pero no son servicios que tampoco se puedan guardar en las tareas repetitivas que normalmente se hacen dentro de una cuota mensual.
+
+Por tanto dentro de directorio diferenciaba clientes de contactos y tenía una opción de traspaso de uno a otro, con todo lo que conlleva de organización para no perder datos, rastro, auditoria y documentos
+
+Cuando creo por ejemplo un cliente:
+
+En la pestaña identidad
+-elijo si es empresa o persona física
+- le asignaba automáticamente un código único con identificador diferenciador si luego era un contacto
+
+Si era Empresa: Razón social, estado (activo, inactivo o precliente)
+- Le asignaba la arquitectura de carpetas que tenía que tener en el Drive incialmente (con independencia que luego pudiera asignarle otras estructuras de carpetas y creadas en las plantillas de estructura de carpetas y subcarpetas.
+Si era persona física: en vez de razón social, aparecía campo nombre, apellido1 y apellido 2
+
+En la pestaña comunicación: añadir teléfonos e indicar preferido
+Ubicaciones: multiples direcciones con mucha incidencia del país con campos específicos y dirección preferida
+
+En la pestaña economía: los id con las opciones que te dije antes de nif, nie, etc…
+Cuentas bancarias con diferenciación si es sepa o no, Swift, numero de cuenta, identificación del banco, favorito, editar y borrar..
+
+Pestaña estructura: esto es importante: necesitamos un visor gráfico claro de quienes son sus socios, quienes son sus administradores, sus empleados, sus particpadas, con indicación de porcentajes. Sería genial que cuando se detecta un servicio que conlleva cambios, se nos recuerde que hay que actualizar. Las relaciones si las tenemos claras, nos facilita el trabajo y evita errores. De ahí la importancia de los contactos. Por ejemplo para LW que está relacionado con contrucción tenemos obras, en una obra el cliente puede ser contratista, o subcontratista, tiene un coordinador concreto que puede ser una empresa, pero hay un coordinador persona asignado a la obra, hay empleados asignados a esa obra, que luego pueden cambiar de obras, hay una servicio de prevención de riesgo, un recurso preventivo…etc…
+Finalmente hay una pestaña de certificado digital, para España o para otros países, con fechas de expiración, avisos y contraseña encriptada.
+
+Ahora listados: veía la rentabilidad por área y por empleados, por clientes. 
+En auditoria: un log histório y no modificable
+Generador de docs: bastante importante: plantillas para generar doc, documentos sin plantilla, y el creador de plantillas. Modo manual y modo iA, y el cliente vinculado donde se tenía que guardar el documento, o la carpeta donde debía ubicarse al cliente. Tenía un visor. 
+Apartado de subir archivos, desde email, whats app, del pc… también manual o ia, para poder ubicarlo donde corresponda
+Explorador drive: donde se crean carptas, subcarpetas, aplicar plantillas de estructuras de carpetas, subir archivos, buscador de los documentos del cliente, de los expedientes, 
+
+Un expediente es una carpeta con características especiales: que pueden ser temas puntuales o temas recurrentes, que tienen que tener su control concreto económico, para ver si es rentable, las personas responsables, las horas trabajdas, acceso al calendario, avisos, un historial de actuaciones, subcarpetas, visor grafico de personas relaciondas, time line…todo lo necesario para que no se escape nada en cualquier proceso, blueprint que van saltando a las personas asignadas…etc..
+
+El apartado de tareas para crear, relacionarlas con blueprints, seguimiento, notificaciones, herramienta de comunicación entre el personal, control de lo que se hace, avance, etc..
+
+Y ahí me quedé. Que falta
+Un portal del empleado
+Un portal del cliente y/o precliente en función del contacto del cliente (diferentes roles, director financiero, empleado, colaborador del cliente… me gustaría que cuando iniciamos un parte de trabajo, que el cliente pudiera ver si está dentro de cuota o no, si no está enviarle un documento para aprobar el servicio con el precio, generación de la provisión en factuar, con gastos o suplidos, etc.., para que no me ocurra luego la negativa del cliente por no haberlo avisado previamente. 
+Toda la documentación fácil de firmar para propuestas, legalidad, confidencialidad, 
+Y el proceso del precliente desde que se convierte en cliente o no y análisis de porque no llegó a cerrarse.
+Finalmente un panel para que pueda discernir, todas las actuaciones hechas, unificarlas en un concepto facturable, si las quiero facturar o no, ver si entran en cuota o no, emitir las facturas y saber lo facturado, lo no facturado, para generar la integración con holded.
+
+
+
+
+
+-
+Entre otros:
+
+- Control de contactos
+- Control de clientes
+- Relaciones entre contactos y clientes
+- Control de la documentación
+- Control de los tiempos incurridos
+- Control de los trabajos realizados
+- Control de los gastos y suplidos y como se han pagado
+- Control de los contratos, propuestas, servicios, aceptaciones y rechazos con los clientes
+- Comunicar a los clientes en tiempo y forma
+- Control de las comunicaciones con los clientes
+- Control de las decisiones tomadas en los expedientes
+- Control de las personas relacionadas en el expediente
+- Control de la rentabilidad de los expedientes

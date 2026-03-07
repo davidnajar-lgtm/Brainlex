@@ -7,6 +7,7 @@
 
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { PencilLine } from "lucide-react";
 
 import { getContactoById } from "@/lib/actions/contactos.actions";
 import { EditContactoForm } from "./EditContactoForm";
@@ -24,7 +25,19 @@ export default async function EditarContactoPage({
   const contacto = result.data;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="mx-auto max-w-2xl space-y-6 rounded-2xl border-2 border-amber-500/60 p-6 shadow-[0_0_0_4px_rgba(245,158,11,0.08)]">
+
+      {/* ── Banner Modo Edición Inequívoco (Micro-Spec 2.3) ── */}
+      <div className="flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2.5">
+        <PencilLine className="h-4 w-4 shrink-0 text-amber-400" />
+        <p className="text-xs font-semibold text-amber-300">
+          MODO EDICIÓN ACTIVO —{" "}
+          <span className="font-normal text-amber-400/80">
+            Los cambios no se guardarán hasta confirmar
+          </span>
+        </p>
+      </div>
+
       {/* Breadcrumb */}
       <div>
         <div className="flex items-center gap-2 text-xs text-zinc-500">

@@ -1,0 +1,443 @@
+{
+  "_meta": {
+    "title": "BRAINLEX — Matriz de Decisión de Agentes SSD",
+    "description": "Configuración canónica de funciones, limitaciones y protocolo de comunicación para todos los agentes del sistema. Leer antes de implementar cualquier módulo.",
+    "schema_version": "1.1.0",
+    "created": "2026-03-07",
+    "product_context": {
+      "name": "BRAINLEX ERP LegalTech",
+      "tenants": ["LX", "LW"],
+      "locales_required": ["es", "en", "fr"],
+      "data_volume_tb": 12,
+      "storage_backend": "Google Drive (abstraction layer)",
+      "encryption_standard": "AES-256"
+    }
+  },
+
+  "agents": {
+
+    "GUARDIAN": {
+      "id": "GUARDIAN",
+      "role": "@Security-CISO",
+      "name": "Agente Legal",
+      "alias": "Guardian",
+      "file": "agents/legal/Guardian.ts",
+      "middleware": "lib/services/legalAgent.middleware.ts",
+
+      "functions": [
+        {
+          "id": "F-L1",
+          "name": "interceptDelete",
+          "description": "Interceptar toda petición DELETE sobre la tabla contactos. Ejecuta el flujo de 3 fases: Auditoría → Bloqueo → Purga."
+        },
+        {
+          "id": "F-L2",
+          "name": "validateHojaEncargo",
+          "description": "Validar que existe firma digital en la Hoja de Encargo antes de abrir un Expediente. Sin firma → bloqueo de flujo con HTTP 403.",
+          "status": "PENDING — Micro-Spec 4.x (integración firma digital)"
+        },
+        {
+          "id": "F-L3",
+          "name": "quarantine",
+          "description": "Transicionar un Contacto a estado QUARANTINE con motivo obligatorio y plazo de retención calculado por tenant."
+        },
+        {
+          "id": "F-L4",
+          "name": "checkLegalDependencies",
+          "description": "Auditar expedientes, facturas (Holded) y documentos (Drive) vinculados a un Contacto antes de cualquier mutación destructiva."
+        }
+      ],
+
+      "constraints": [
+        {
+          "id": "C-L1",
+          "rule": "NO_PRICE_LOGIC",
+          "description": "El Agente Legal NO puede alterar la lógica de precios, tarifas ni cálculos de facturación. Su único poder sobre ese flujo es BLOQUEARLO si falta compliance (firma, cuarentena, etc.). La lógica de precios pertenece exclusivamente al Agente de Backend.",
+          "severity": "HARD — violación invalida el deploy"
+        },
+        {
+          "id": "C-L2",
+          "rule": "AUDIT_BEFORE_MUTATE",
+          "description": "Todo intento de borrado o archivado DEBE escribir en audit_logs ANTES de mutar el estado. La tabla audit_logs es INMUTABLE (sin UPDATE, sin DELETE).",
+          "severity": "HARD — REGLA CISO"
+        },
+        {
+          "id": "C-L3",
+          "rule": "NO_DIRECT_DELETE",
+          "description": "Prohibido llamar a prisma.contacto.delete() directamente desde cualquier Server Action. Toda eliminación pasa por Guardian.validateDelete().",
+          "severity": "HARD"
+        },
+        {
+          "id": "C-L4",
+          "rule": "QUARANTINE_REASON_MANDATORY",
+          "description": "quarantine_reason es obligatorio (mínimo 5 caracteres). Sin motivo → BusinessValidationError (HTTP 422).",
+          "severity": "HARD"
+        }
+      ],
+
+      "veto_power": ["DELETE_CONTACTO", "OPEN_EXPEDIENTE_WITHOUT_FIRMA", "BYPASS_QUARANTINE"],
+      "tdd_required": true,
+      "log_all_decisions": true
+    },
+
+    "ARCHITECT": {
+      "id": "ARCHITECT",
+      "role": "@Data-Architect",
+      "name": "Agente de Datos",
+      "alias": "Architect",
+      "file": "agents/data/TaxonomyManager.ts",
+
+      "functions": [
+        {
+          "id": "F-D1",
+          "name": "assertFixedCommField",
+          "description": "Mantener la integridad de la tabla Contactos verificando que solo se usan los 6 Campos Fijos de comunicación autorizados."
+        },
+        {
+          "id": "F-D2",
+          "name": "assertCanalTipo",
+          "description": "Validar que los tipos de CanalComunicacion pertenecen a la whitelist autorizada (7 tipos)."
+        },
+        {
+          "id": "F-D3",
+          "name": "auditCommFields",
+          "description": "Auditar payloads de actualización de Contacto para detectar campos de comunicación no autorizados."
+        },
+        {
+          "id": "F-D4",
+          "name": "validateSALITags",
+          "description": "Mantener integridad de etiquetas SALI (Sistema de Autoclasificación Legal Inteligente). Validar que las asignaciones de tags respetan el modelo tags + tag_assignments.",
+          "status": "PENDING — Micro-Spec 3.x (sistema de etiquetas)"
+        }
+      ],
+
+      "constraints": [
+        {
+          "id": "C-D1",
+          "rule": "NO_DUPLICATE_FIELDS",
+          "description": "Prohibido crear columnas duplicadas o semánticamente equivalentes en la tabla contactos. Cualquier nuevo campo de comunicación debe ir a la tabla canales_comunicacion.",
+          "severity": "HARD"
+        },
+        {
+          "id": "C-D2",
+          "rule": "COMPANY_ID_MANDATORY",
+          "description": "Toda entidad multitenant DEBE tener company_id en su tabla puente (ContactoCompanyLink). Prohibido saltarse el company_id para acceder a datos cross-tenant.",
+          "severity": "HARD — viola RLS"
+        },
+        {
+          "id": "C-D3",
+          "rule": "NO_SCHEMA_MIGRATION_WITHOUT_APPROVAL",
+          "description": "Ninguna migración de Prisma puede ejecutarse contra la BD sin autorización explícita del Arquitecto Jefe. El archivo schema.prisma NO puede modificarse sin aprobación.",
+          "severity": "HARD"
+        },
+        {
+          "id": "C-D4",
+          "rule": "SALI_TAGS_NORMALIZED",
+          "description": "Las etiquetas SALI deben almacenarse en la tabla maestra 'tags' con asignación polimórfica en 'tag_assignments'. No se permiten tags hardcoded en columnas de negocio.",
+          "severity": "SOFT — pendiente Micro-Spec 3.x"
+        }
+      ],
+
+      "veto_power": ["ADD_ADHOC_COMM_FIELD", "SKIP_COMPANY_ID", "DUPLICATE_SCHEMA_COLUMN"],
+      "tdd_required": true,
+      "log_all_decisions": true
+    },
+
+    "SPEEDSTER": {
+      "id": "SPEEDSTER",
+      "role": "@Performance-Agent",
+      "name": "Agente de Rendimiento",
+      "alias": "Speedster",
+      "file": "agents/performance/Optimizer.ts",
+
+      "functions": [
+        {
+          "id": "F-P1",
+          "name": "assertBudget",
+          "description": "Auditar que ninguna operación supera el presupuesto de TTI de 200ms. Lanza PerformanceVetoError si se excede."
+        },
+        {
+          "id": "F-P2",
+          "name": "enforcePagination",
+          "description": "Obligar al Agente de Datos a usar cursor-based pagination. Máximo MAX_PAGE_SIZE=50 registros por llamada."
+        },
+        {
+          "id": "F-P3",
+          "name": "optimizeDriveLoad",
+          "description": "Auditar la carga de documentos desde Google Drive. Los metadatos de Drive deben cachearse en BD (tabla drive_documents) para evitar llamadas API en cada render.",
+          "status": "PENDING — Micro-Spec 5.x (Drive integration)"
+        },
+        {
+          "id": "F-P4",
+          "name": "assertGoogleMapsLazy",
+          "description": "Verificar que la API de Google Maps solo se carga con next/dynamic+ssr:false en componentes que la usan. Nunca en el bundle global."
+        },
+        {
+          "id": "F-P5",
+          "name": "issueCertificate",
+          "description": "Emitir certificado de rendimiento (APPROVED/VETOED) como parte del proceso de triple sello antes de producción."
+        }
+      ],
+
+      "constraints": [
+        {
+          "id": "C-P1",
+          "rule": "NO_DISABLE_AES256",
+          "description": "El Agente de Rendimiento NO puede desactivar ni reducir el cifrado AES-256 de contraseñas de certificados digitales para ganar velocidad. La seguridad tiene prioridad absoluta sobre la latencia.",
+          "severity": "HARD — REGLA CISO / violación invalida el deploy"
+        },
+        {
+          "id": "C-P2",
+          "rule": "NO_DISABLE_RLS",
+          "description": "Prohibido desactivar Row Level Security (RLS) de Supabase como optimización. Si una query es lenta, la solución es añadir índices, no eliminar controles de acceso.",
+          "severity": "HARD — REGLA CISO"
+        },
+        {
+          "id": "C-P3",
+          "rule": "NO_CHRISTMAS_TREE",
+          "description": "VETO sobre cualquier componente de Frontend que cause scroll < 60fps. Animaciones y gráficos pesados (D3, Three.js) requieren lazy loading explícito.",
+          "severity": "SOFT — advertencia en code review"
+        },
+        {
+          "id": "C-P4",
+          "rule": "SWR_CACHE_MANDATORY",
+          "description": "Las listas de Contactos y entidades visitadas DEBEN usar SWR o React Query. Prohibido re-fetch en cada montaje de componente.",
+          "severity": "SOFT — advertencia en certificación"
+        }
+      ],
+
+      "veto_power": ["EXCEED_TTI_BUDGET", "LOAD_MAPS_GLOBALLY", "FETCH_FULL_LIST", "DISABLE_ENCRYPTION"],
+      "tdd_required": false,
+      "log_all_decisions": true,
+      "budgets": {
+        "tti_ms": 200,
+        "max_page_size": 50,
+        "client_cache_ttl_seconds": 60,
+        "list_cache_ttl_seconds": 30
+      }
+    },
+
+    "AUDITOR": {
+      "id": "AUDITOR",
+      "role": "@QA-Engineer",
+      "name": "Agente de QA",
+      "alias": "The Auditor",
+      "file": "agents/qa/Auditor.ts",
+      "test_dir": "tests/regression/",
+      "status_file": "qa_status.json",
+
+      "functions": [
+        {
+          "id": "F-Q1",
+          "name": "certifyModule",
+          "description": "Ejecutar los 3 checks (I18N, TEST_SUITE, RESPONSIVE) sobre un módulo y emitir el Sello de Calidad. Actualiza qa_status.json."
+        },
+        {
+          "id": "F-Q2",
+          "name": "checkI18n",
+          "description": "Verificar que el diccionario i18n cubre ES · EN · FR sin claves vacías ni valores sin traducir. Todo texto de UI debe tener entrada en lib/i18n/."
+        },
+        {
+          "id": "F-Q3",
+          "name": "checkTestSuite",
+          "description": "Ejecutar vitest run y verificar que todos los tests del módulo pasan al 100%. Regresión obligatoria tras cada cambio."
+        },
+        {
+          "id": "F-Q4",
+          "name": "checkResponsive",
+          "description": "Verificar presencia de breakpoints Tailwind (sm:, md:, lg:) en componentes TSX del módulo."
+        },
+        {
+          "id": "F-Q5",
+          "name": "canClosePhase",
+          "description": "Consultar qa_status.json para determinar si el Agente Orquestador puede cerrar la fase de desarrollo."
+        }
+      ],
+
+      "constraints": [
+        {
+          "id": "C-Q1",
+          "rule": "NO_WRITE_BUSINESS_CODE",
+          "description": "El Agente de QA NO escribe código de negocio nuevo. Solo puede crear archivos en /tests/ y reportes de error en tests/reports/. Prohibido modificar lib/, app/, prisma/ o agents/ (excepto qa_status.json).",
+          "severity": "HARD — limitación de seguridad implementada en código (assertWriteAllowed)"
+        },
+        {
+          "id": "C-Q2",
+          "rule": "CERTIFY_BEFORE_PHASE_CLOSE",
+          "description": "Ninguna fase puede darse por cerrada si qa_status.json tiene overall_status !== 'APPROVED'. El Orquestador debe llamar a Auditor.canClosePhase() antes de marcar la fase como completa.",
+          "severity": "HARD — bloqueante para el Orquestador"
+        },
+        {
+          "id": "C-Q3",
+          "rule": "TDD_FIRST",
+          "description": "El Agente de QA escribe el test unitario ANTES que la lógica de negocio. Ningún módulo puede enviarse a certificación sin tests previos.",
+          "severity": "HARD — parte del Vibe Coding Flow"
+        },
+        {
+          "id": "C-Q4",
+          "rule": "REGRESSION_AFTER_CHANGE",
+          "description": "Tras cada cambio en un módulo certificado, el Agente de QA DEBE re-ejecutar certifyModule() para verificar que no hay regresión.",
+          "severity": "SOFT — responsabilidad del desarrollador activar la certificación"
+        }
+      ],
+
+      "veto_power": ["CLOSE_PHASE_WITHOUT_QA", "SKIP_I18N_CHECK", "MERGE_WITH_FAILING_TESTS"],
+      "tdd_required": true,
+      "log_all_decisions": true,
+      "write_allowed_paths": ["tests/", "qa_status.json", "system_decision_log.md"]
+    },
+
+    "BACKEND": {
+      "id": "BACKEND",
+      "role": "@Backend-Agent",
+      "name": "Agente de Backend",
+      "alias": "Backend",
+      "file": "agents/backend/index.ts",
+
+      "functions": [
+        {
+          "id": "F-B1",
+          "name": "serverActions",
+          "description": "Implementar toda la lógica de negocio en Server Actions ('use server'). Nunca exponer lógica de negocio al cliente."
+        },
+        {
+          "id": "F-B2",
+          "name": "repositoryPattern",
+          "description": "Toda consulta a BD pasa por un repository. Prohibido llamar a prisma directamente desde Server Actions (excepto $transaction)."
+        },
+        {
+          "id": "F-B3",
+          "name": "resultPattern",
+          "description": "Toda Server Action devuelve { ok: true; data } | { ok: false; error }. Sin throws al cliente."
+        }
+      ],
+
+      "constraints": [
+        {
+          "id": "C-B1",
+          "rule": "NO_CLIENT_BUSINESS_LOGIC",
+          "description": "Prohibido añadir lógica de negocio en Client Components. Solo presentación y llamadas a Server Actions.",
+          "severity": "HARD"
+        },
+        {
+          "id": "C-B2",
+          "rule": "ZOD_BEFORE_PERSIST",
+          "description": "Toda Server Action valida con Zod antes de persistir. Sin validación = rechazo en code review.",
+          "severity": "HARD"
+        }
+      ],
+
+      "veto_power": [],
+      "tdd_required": true,
+      "log_all_decisions": false
+    },
+
+    "FRONTEND": {
+      "id": "FRONTEND",
+      "role": "@Frontend-UX",
+      "name": "Agente de Frontend",
+      "alias": "Frontend",
+      "file": "agents/frontend/index.ts",
+
+      "functions": [
+        {
+          "id": "F-F1",
+          "name": "renderUI",
+          "description": "Construir interfaces con Shadcn/UI. Dark theme first (#0d0d0d). Formularios conectados a schemas Zod del servidor."
+        },
+        {
+          "id": "F-F2",
+          "name": "i18nUI",
+          "description": "Todo string visible al usuario debe obtenerse de getContactosLabels(locale) o equivalente. Prohibidos textos hardcoded en componentes TSX."
+        }
+      ],
+
+      "constraints": [
+        {
+          "id": "C-F1",
+          "rule": "NO_HARDCODED_STRINGS",
+          "description": "Prohibido hardcodear textos en ES/EN/FR en componentes TSX. Todo texto de UI debe existir en lib/i18n/.",
+          "severity": "SOFT — detectado por The Auditor (CHECK I18N)"
+        },
+        {
+          "id": "C-F2",
+          "rule": "RESPECT_PERFORMANCE_VETO",
+          "description": "El Frontend debe respetar todos los VETOs del Agente de Rendimiento (Speedster). TTI < 200ms, sin Maps global, SWR obligatorio.",
+          "severity": "HARD"
+        }
+      ],
+
+      "veto_power": [],
+      "tdd_required": false,
+      "log_all_decisions": false
+    }
+  },
+
+  "communication_protocol": {
+    "name": "Vibe Coding Flow",
+    "version": "1.0.0",
+    "description": "Protocolo obligatorio para toda tarea de implementación en BRAINLEX. Garantiza que los agentes están alineados antes de escribir código.",
+
+    "steps": [
+      {
+        "step": 1,
+        "name": "ANALYZE_MICRO_SPEC",
+        "description": "Leer y analizar la Micro-Spec correspondiente antes de proponer cualquier plan. Identificar qué agentes están afectados.",
+        "owner": "Claude Code (implementador)",
+        "output": "Lista de agentes afectados + resumen de la Micro-Spec"
+      },
+      {
+        "step": 2,
+        "name": "REQUEST_VISTO_BUENO",
+        "description": "Pedir 'Visto Bueno' explícito al agente (o agentes) afectados antes de proponer el plan de implementación. Si el agente tiene un VETO activo sobre el cambio → el plan no avanza.",
+        "owner": "Claude Code → @AgentRole",
+        "output": "Confirmación escrita del agente afectado (o VETO con motivo)"
+      },
+      {
+        "step": 3,
+        "name": "WRITE_TEST_FIRST",
+        "description": "El Agente de QA (The Auditor) escribe el test unitario ANTES que la lógica de negocio (TDD). El test debe cubrir el contrato de la Micro-Spec.",
+        "owner": "@QA-Engineer",
+        "output": "Archivo en tests/regression/ o lib/**/*.test.ts",
+        "rule": "NO test → NO implementation"
+      },
+      {
+        "step": 4,
+        "name": "IMPLEMENT",
+        "description": "Implementar la lógica de negocio siguiendo las constraints de cada agente. Log de cada decisión en system_decision_log.md.",
+        "owner": "@Backend-Agent / @Frontend-UX",
+        "output": "Código + AuditLog de la decisión"
+      },
+      {
+        "step": 5,
+        "name": "TRIPLE_CERTIFICATION",
+        "description": "Antes del merge: Guardian.issueCertificate() + Optimizer.issueCertificate() + Auditor.certifyModule(). Los 3 deben ser APPROVED.",
+        "owner": "@Security-CISO + @Performance-Agent + @QA-Engineer",
+        "output": "3 certificados APPROVED + qa_status.json overall_status=APPROVED"
+      }
+    ],
+
+    "escalation_rules": [
+      {
+        "trigger": "Conflicto entre agentes",
+        "resolution": "El Arquitecto Jefe tiene decisión final. @Security-CISO siempre prevalece en temas de seguridad."
+      },
+      {
+        "trigger": "VETO activo bloquea avance",
+        "resolution": "Documentar el VETO en system_decision_log.md y escalar al Arquitecto Jefe con propuesta alternativa."
+      },
+      {
+        "trigger": "qa_status.json overall_status=FAILED",
+        "resolution": "Ningún agente puede cerrar la fase. El implementador debe corregir y re-certificar antes de continuar."
+      }
+    ]
+  },
+
+  "decision_log": {
+    "file": "system_decision_log.md",
+    "format": "markdown-table",
+    "columns": ["timestamp", "agent", "action", "module", "verdict", "detail"],
+    "append_only": true,
+    "write_allowed_agents": ["GUARDIAN", "ARCHITECT", "SPEEDSTER", "AUDITOR"]
+  }
+}

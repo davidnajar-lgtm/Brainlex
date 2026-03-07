@@ -6,11 +6,11 @@
 // ============================================================================
 import {
   AuditAction,
+  AuditLog,
   Contacto,
   ContactoStatus,
   ContactoTipo,
   FiscalIdTipo,
-  TipoTelefono,
   Prisma,
 } from "@prisma/client";
 
@@ -36,12 +36,16 @@ export interface CreateContactoData {
   razon_social?: string | null;
   fiscal_id?: string | null;
   fiscal_id_tipo?: FiscalIdTipo | null;
-  email?: string | null;
-  telefono?: string | null;
-  tipo_telefono?: TipoTelefono;
   tipo_sociedad?: string | null;
   notas?: string | null;
   es_cliente?: boolean;
+  // — Canales de Comunicación Directos —
+  email_principal?: string | null;
+  telefono_movil?:  string | null;
+  telefono_fijo?:   string | null;
+  website_url?:     string | null;
+  linkedin_url?:    string | null;
+  canal_preferido?: string;
 }
 
 export interface AuditEntry {
@@ -64,10 +68,12 @@ export const contactoRepository = {
    * Devuelve los Contactos ACTIVOS ordenados por fecha de creación (más nuevo primero).
    * VETO LEGAL: los contactos en QUARANTINE o FORGOTTEN no son visibles por defecto.
    */
-  async findAll(): Promise<Contacto[]> {
+  async findAll(skip = 0, take = 50): Promise<Contacto[]> {
     return prisma.contacto.findMany({
-      where: { status: ContactoStatus.ACTIVE },
+      where:   { status: ContactoStatus.ACTIVE },
       orderBy: { created_at: "desc" },
+      skip,
+      take,
     });
   },
 
@@ -86,22 +92,23 @@ export const contactoRepository = {
   },
 
   /**
-   * Soft delete: transición a QUARANTINE con razón y plazo estándar del tenant.
-   * NUNCA llames a prisma.contacto.delete desde esta capa.
+   * ⛔  GUARDIAN VETO — MÉTODO ELIMINADO
+   *
+   * Este método fue un backdoor que permitía transicionar a QUARANTINE
+   * sin pasar por el AuditLog, violando la REGLA CISO (Audit before mutate).
+   *
+   * La ÚNICA forma autorizada de enviar un Contacto a QUARANTINE es:
+   *   legalAgent.quarantine({ contactoId, quarantine_reason })
+   *
+   * Llamar a este método lanza un error explícito para que el compilador
+   * y los tests detecten cualquier intento de bypass.
    */
-  async archive(id: string): Promise<Contacto> {
-    return prisma.contacto.update({
-      where: { id },
-      data: {
-        status: ContactoStatus.QUARANTINE,
-        quarantine_reason:
-          "Archivado manualmente desde el panel de administración.",
-        // Plazo legal estándar: 48 meses (art. 30 CComercio / Ley 58/2003)
-        quarantine_expires_at: new Date(
-          Date.now() + 48 * 30 * 24 * 60 * 60 * 1000
-        ),
-      },
-    });
+  archive(_id: string): never {
+    throw new Error(
+      "[GUARDIAN VETO] contactoRepository.archive() está prohibido. " +
+      "Usa legalAgent.quarantine({ contactoId, quarantine_reason }) " +
+      "para transicionar a QUARANTINE con AuditLog obligatorio (REGLA CISO)."
+    );
   },
 
   /**
@@ -135,10 +142,37 @@ export const contactoRepository = {
    *   - Verificación de cero dependencias via findByIdWithCounts().
    *
    * PROHIBIDO exponer este método en cualquier Server Action accesible desde la UI.
-   * Todo borrado iniciado desde la interfaz debe pasar por archive() → QUARANTINE.
+   * Todo borrado iniciado desde la interfaz debe pasar por legalAgent.quarantine() → QUARANTINE.
    */
   async dangerouslyHardDeleteForGdprComplianceOnly(id: string): Promise<void> {
     await prisma.contacto.delete({ where: { id } });
+  },
+
+  /**
+   * Restaura un Contacto desde QUARANTINE a ACTIVE.
+   * Borra quarantine_reason y quarantine_expires_at.
+   * REGLA CISO: el llamante debe escribir el AuditLog(RESTORE) antes de llamar aquí.
+   */
+  async restore(id: string): Promise<Contacto> {
+    return prisma.contacto.update({
+      where: { id },
+      data: {
+        status:                ContactoStatus.ACTIVE,
+        quarantine_reason:     null,
+        quarantine_expires_at: null,
+      },
+    });
+  },
+
+  /**
+   * Devuelve el historial de AuditLog para un Contacto, más reciente primero.
+   * Solo lectura — la tabla audit_logs es inmutable (sin UPDATE/DELETE).
+   */
+  async findAuditLogs(recordId: string): Promise<AuditLog[]> {
+    return prisma.auditLog.findMany({
+      where:   { table_name: "contactos", record_id: recordId },
+      orderBy: { created_at: "desc" },
+    });
   },
 
   /**
@@ -170,7 +204,7 @@ export const contactoRepository = {
       data: {
         company_id: "LX",
         nombre: "Lexconomy Default",
-        quarantine_months: 48,
+        quarantine_months: 60,
       },
     });
     return created.company_id;

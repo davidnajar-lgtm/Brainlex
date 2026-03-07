@@ -1,0 +1,10 @@
+{
+  "modules": {},
+  "last_run": "",
+  "overall_status": "PENDING",
+  "_schema_version": "1.0.0",
+  "_description": "Estado de certificación QA por módulo. Gestionado exclusivamente por agents/qa/Auditor.ts.",
+  "_rule": "Si overall_status es FAILED, el Agente Orquestador NO puede dar por finalizada la fase.",
+  "_locales_required": ["es", "en", "fr"],
+  "_checks": ["I18N_COVERAGE", "TEST_SUITE", "RESPONSIVE_DESIGN"]
+}

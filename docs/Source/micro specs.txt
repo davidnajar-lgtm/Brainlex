@@ -1,0 +1,136 @@
+FASE 1: Cimientos, Base de Datos y "Agente Legal"
+Objetivo: Establecer el modelo de datos multi-entidad y las reglas inquebrantables de seguridad antes de construir la interfaz gráfica.
+Micro-Spec 1.1: Esquema Core y Multi-tenancy Híbrida
+* Objetivo: Crear el esquema base de PostgreSQL usando Prisma (u ORM equivalente).
+* Requisitos:
+o Crear tabla global Sujetos (Contactos y Clientes unificados).
+o Implementar el campo separador lógico Company_ID (LX o LW) para transacciones y expedientes.
+o Crear tabla Sociedades_Holding para futura escalabilidad (Empresa C).
+o Configurar i18n base (ES, EN, FR) para respuestas del servidor.
+* Validación: El test debe verificar que un Sujeto puede pertenecer a LX y LW sin duplicarse en la base de datos.
+Micro-Spec 1.2: Middleware de Integridad y Cuarentena (Agente Legal)
+* Objetivo: Implementar la lógica que bloquea el borrado accidental y activa la cuarentena legal.
+* Requisitos:
+o Interceptar peticiones DELETE sobre la tabla Sujetos.
+o Auditoría (Fase 1): Escanear dependencias en Expedientes, Documentos (Drive) y Facturas (Holded).
+o Bloqueo (Fase 2 y 3): Si hay dependencias, devolver HTTP 403, cambiar Status a QUARANTINE y pedir Quarantine_Reason obligatorio.
+o Configurar temporizador de purga (4, 6 o 10 años) según prescripción legal.
+Micro-Spec 1.3: Cifrado y Derecho al Olvido (Crypto-shredding)
+* Objetivo: Proteger datos sensibles y contraseñas.
+* Requisitos:
+o Crear tabla Certificados_Digitales encriptando las contraseñas en reposo con AES-256.
+o Implementar script de "Anonimización": A petición, debe borrar PII (Nombre, Email, Teléfono) pero mantener NIF y Razón Social para el histórico contable.
+-------------------------------------------------------------------------------- 
+FASE 2: Motor de Sujetos y Directorio Inteligente
+Objetivo: Interfaz y lógica para gestionar la "Pestaña Identidad y Fiscalidad" y la "Pestaña Estructura".
+Micro-Spec 2.1: Validaciones de Identidad y Fiscalidad
+* Objetivo: Crear controladores y endpoints para alta de Sujetos.
+* Requisitos:
+o Selector excluyente: Persona Física (Nombre, Apellidos) vs Jurídica (Razón Social).
+o Validación estricta Regex para IDs Fiscales (NIF, CIF, NIE, Pasaporte, VAT).
+o Añadir campos avanzados: CNAE, IAE, Régimen de IVA con Prorrata %, Estado Censal.
+o Integrar libphonenumber-js para prefijos telefónicos.
+Micro-Spec 2.2: Pestaña Estructura y Visor Gráfico
+* Objetivo: Modelar y visualizar relaciones entre entidades.
+* Requisitos:
+o Tabla pivot para relacionar Sujetos (Socios, Administradores, Participadas, Empleados) con % de participación.
+o Para Lawork (LW): Añadir roles de obra (Contratista, Coordinador de seguridad, Recurso preventivo).
+o Preparar endpoint para alimentar un Visor Gráfico (nodos) en frontend.
+Micro-Spec 2.3: Interfaz de Edición Segura
+* Objetivo: Prevenir errores humanos en el Frontend.
+* Requisitos:
+o Las fichas de cliente deben ser de "Solo Lectura" por defecto.
+o Al clicar en "Editar", cambiar el borde de la UI a un color inequívoco y mostrar banner "Modo Edición Activo".
+-------------------------------------------------------------------------------- 
+FASE 3: Ecosistema Documental Híbrido (SSOT)
+Objetivo: Integrar Drive con la Web App, implementar Inteligencia Artificial de clasificación y Firma Electrónica.
+Micro-Spec 3.1: Drive como Backend Maestro y Taxonomía SALI
+* Objetivo: Crear el puente entre la base de datos y Google Workspace.
+* Requisitos:
+o Conectar API de Google Drive. Toda la navegación documental ocurre en la Web App, no en Drive.
+o Implementar tabla maestra de Etiquetas SALI (LMSS) inalterable por usuarios.
+o Capacidad de aplicar "Plantillas de Carpetas" automáticas al crear un nuevo Sujeto/Expediente.
+Micro-Spec 3.2: Agente de Clasificación Silenciosa (OCR + NLP)
+* Objetivo: Automatizar el nombrado y guardado de documentos subidos.
+* Requisitos:
+o Endpoint de ingesta (vía Drag & Drop).
+o Conexión a motor IA Local/Cloud seguro (cero retención) para leer contenido y extraer NIF/Nombre.
+o Sugerir ubicación y aplicar "Nombre Unificado" (ej. YYYY-MM-DD_NIF_NombreSujeto_V1.pdf).
+o Asignar etiqueta SALI automáticamente pendiente de validación humana (1 clic).
+Micro-Spec 3.3: "Draft Zero" y Firma Electrónica
+* Objetivo: Generación y firma de documentos legales.
+* Requisitos:
+o Mapeo de variables: Extraer datos del Sujeto para inyectar en plantillas Word/PDF (Contratos, Demandas) creando un "Borrador Cero".
+o Integración vía API con proveedor de firma biométrica/electrónica homologada.
+o Generación y firma obligatoria de "Aceptación de RGPD" al subir datos sensibles.
+-------------------------------------------------------------------------------- 
+FASE 4: Motor Económico y "Zero Leakage Billing"
+Objetivo: Control absoluto de rentabilidad, evitar trabajos no facturados e integración con Holded.
+Micro-Spec 4.1: Tracker de Actividad e Imputación
+* Objetivo: Rastrear el tiempo invertido en expedientes.
+* Requisitos:
+o Monitorizar documentos abiertos. Al cerrar, la IA propone la imputación de tiempo al Expediente.
+o Bandeja de "Tareas no facturadas" obligatoria antes de cierre de mes.
+Micro-Spec 4.2: Semáforo de Servicio (Control de Cuota)
+* Objetivo: Evitar trabajar gratis.
+* Requisitos:
+o Lógica de validación: Comparar la tarea con el array de "Servicios_Contratados" del cliente.
+o Si es VERDE: Permitir trabajo.
+o Si es ROJO: Bloquear edición (Error HTTP 412). Disparar pop-up para generar "Propuesta de Honorarios".
+o Solo liberar el expediente al recibir el timestamp de la firma de la propuesta.
+Micro-Spec 4.3: Gastos, Suplidos e Integración Holded
+* Objetivo: No perder dinero en suplidos y sincronizar facturas.
+* Requisitos:
+o Tabla Suplidos con vinculación obligatoria a ID_Expediente, Método_Pago y Estado_Recobro.
+o API de sincronización bidireccional con Holded (Maestro contable).
+o Alertas de cobro: Avisar al empleado si el cliente tiene facturas pendientes antes de iniciar un nuevo trámite.
+o Separación de facturación por Company_ID (LX o LW).
+-------------------------------------------------------------------------------- 
+FASE 5: Expedientes y Motor de Automatización (Blueprints)
+Objetivo: Orquestar el trabajo diario, los flujos y las alertas de plazos legales.
+Micro-Spec 5.1: Anatomía Base del Expediente
+* Objetivo: Unidad mínima de rentabilidad.
+* Requisitos:
+o Asignación de responsables y control de accesos.
+o Historial de actuaciones inalterable (log de auditoría).
+o Timeline gráfico de hitos y visor local de "Personas Relacionadas" al expediente.
+Micro-Spec 5.2: Motor de Blueprints
+* Objetivo: Flujos automatizados en lugar de tareas manuales.
+* Requisitos:
+o Sistema de Triggers: Un documento subido dispara la siguiente tarea.
+o Asignación automática de tareas según el "Rol" del empleado (Junior vs Senior).
+o Condicionales de Seguridad: El Blueprint se detiene si falta requisito normativo (ej. Hoja de Encargo).
+o Escalado de alertas al Manager si un deadline crítico va a expirar.
+Micro-Spec 5.3: Módulo Específico CAE/Movilidad (Lawork)
+* Objetivo: Necesidad particular para LW (Construcción/Extranjería).
+* Requisitos:
+o Control de requisitos PRL por obra.
+o Alertas inmediatas si un empleado cambia de obra para actualizar documentación.
+o Bot/Script de sincronización para subir documentación validada a plataformas CAE externas.
+-------------------------------------------------------------------------------- 
+FASE 6: Portales, Comunicaciones y Trazabilidad
+Objetivo: La capa de relación con el cliente y gestión administrativa del equipo.
+Micro-Spec 6.1: Portal del Cliente (Client Experience)
+* Objetivo: Autosuficiencia del cliente.
+* Requisitos:
+o Visor de la línea de tiempo del expediente (Fases).
+o Panel "Dentro de Cuota" o presupuestos pendientes de aprobar.
+o Buzón seguro de intercambio documental y aprobación "One-Click" (SEPA, RGPD).
+Micro-Spec 6.2: Portal del Empleado y Gestor de Reuniones
+* Objetivo: Productividad interna.
+* Requisitos:
+o Dashboard "Mis Tareas" ordenadas por deadline del Blueprint.
+o Chat interno enlazado al ID del Expediente para registro de decisiones.
+o Gestor de Reuniones: Endpoint para procesar audios/transcripciones. La IA genera acta y extrae "Task List" inyectándola automáticamente en el Blueprint.
+Micro-Spec 6.3: Omnicanalidad (WhatsApp/Email)
+* Objetivo: No perder información de canales informales.
+* Requisitos:
+o Integrar Webhooks de WhatsApp Business API y Email.
+o Lógica: Si el remitente hace match con un Sujeto, guardar el archivo/mensaje en su "Carpeta de Actuaciones" o Expediente activo automáticamente.
+Micro-Spec 6.4: Dashboard Administrativo
+* Objetivo: Control del despacho para el Management.
+* Requisitos:
+o Gráficos de rentabilidad: Horas incurridas vs Facturación (por empleado y por empresa LX/LW).
+o Gestión de tarifas por hora según rol del empleado.
+o Panel de Alertas de Certificados Digitales a punto de expirar.
+

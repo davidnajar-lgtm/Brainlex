@@ -93,14 +93,17 @@
 
 ## 🟡 EN PROGRESO
 
-### Micro-Spec 2.6 — Ficha Ampliada del Contacto (Dashboard del Cliente) ← SIGUIENTE PASO INMEDIATO
+### Micro-Spec 2.6 — Ficha Ampliada del Contacto (Dashboard del Cliente)
 - [x] Scaffold de ruta `/contactos/[id]` — RSC básico con header y placeholders
-- [ ] **Pestañas de navegación**: Identidad · Comunicación · Fiscal · Expedientes · Compliance
-- [ ] **Panel Identidad**: mostrar todos los campos del contacto en modo lectura (con botón Editar)
-- [ ] **Panel Expedientes**: listar expedientes vinculados al contacto (con contador)
-- [ ] **Panel Compliance / Ciclo de vida**: estado actual, historial de cuarentena, botón "Restaurar" (`QUARANTINE → ACTIVE`)
-- [ ] **AuditLog visible**: historial de cambios para administrador
-- [ ] Sub-entidades futuras: Direcciones, Cuentas Bancarias, Certificados Digitales
+- [x] **Pestañas de navegación**: 6 tabs (Visión · Filiación · Operativa · Admin · Ecosistema · Bóveda)
+- [x] **Pestaña Filiación y Canales**: identidad, canales directos, CRUD Direcciones, CRUD Canales
+- [x] **Pestaña Operativa**: lista de expedientes vinculados con contador, semáforo Zero Leakage
+- [x] **Pestaña Administración**: ciclo de vida, estado QUARANTINE, botón Restaurar, AuditLog inmutable
+- [x] `restoreContacto()` Server Action: QUARANTINE → ACTIVE con AuditLog(RESTORE) previo (REGLA CISO)
+- [x] `restore()` + `findAuditLogs()` en repositorio
+- [ ] **Pestaña Visión General**: resumen ejecutivo con KPIs y actividad reciente
+- [ ] **Pestaña Ecosistema**: relaciones, socios, participadas (requiere Micro-Spec 2.2 completa)
+- [ ] **Pestaña La Bóveda**: documentos privados (requiere Micro-Spec 3.x Drive)
 
 ### Tests pendientes (Micro-Spec 2.4 / 2.5)
 - [ ] **Test E2E** del flujo completo: editar → guardar → confirmar revalidación

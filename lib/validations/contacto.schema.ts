@@ -12,7 +12,7 @@
 // ============================================================================
 
 import { z } from "zod";
-import { ContactoTipo, FiscalIdTipo, TipoTelefono } from "@prisma/client";
+import { ContactoTipo, FiscalIdTipo } from "@prisma/client";
 import { parsePhoneNumberFromString } from "libphonenumber-js";
 
 // ─── Patrones estructurales ───────────────────────────────────────────────────
@@ -137,31 +137,60 @@ export const ContactoFormSchema = z
     // Notas libres (opcional)
     notas: z.string().optional(),
 
-    // Contacto (opcionales)
-    tipo_telefono: z.enum(TipoTelefono).default(TipoTelefono.MOVIL),
+    // ─── Canales de Comunicación Directos (todos opcionales) ─────────────────
 
-    email: z
+    email_principal: z
       .union([
         z.string().trim().email({ error: "El email no tiene un formato válido." }),
         z.literal(""),
         z.null(),
       ])
       .nullish(),
-    telefono: z
+
+    telefono_movil: z
       .string()
       .trim()
       .refine(
         (val) => {
-          if (!val) return true; // campo opcional — vacío es válido
-          try {
-            return parsePhoneNumberFromString(val)?.isValid() ?? false;
-          } catch {
-            return false;
-          }
+          if (!val) return true;
+          try { return parsePhoneNumberFromString(val)?.isValid() ?? false; }
+          catch { return false; }
         },
         "Debe incluir prefijo internacional (ej. +34) y ser válido."
       )
       .nullish(),
+
+    telefono_fijo: z
+      .string()
+      .trim()
+      .refine(
+        (val) => {
+          if (!val) return true;
+          try { return parsePhoneNumberFromString(val)?.isValid() ?? false; }
+          catch { return false; }
+        },
+        "Debe incluir prefijo internacional (ej. +34) y ser válido."
+      )
+      .nullish(),
+
+    // website_url — normalizada a https:// en el frontend antes del submit
+    website_url: z
+      .union([
+        z.string().trim().url({ error: "URL inválida. Ejemplo: https://www.empresa.com" }),
+        z.literal(""),
+        z.null(),
+      ])
+      .nullish(),
+
+    linkedin_url: z
+      .union([
+        z.string().trim().url({ error: "URL de LinkedIn inválida." }),
+        z.literal(""),
+        z.null(),
+      ])
+      .nullish(),
+
+    canal_preferido: z.enum(["EMAIL", "MOVIL"]).default("EMAIL"),
   })
   .superRefine((data, ctx) => {
     // ── Nombre / Razón Social obligatorio según tipo ──────────────────────────

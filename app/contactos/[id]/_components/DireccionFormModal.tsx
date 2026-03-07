@@ -8,8 +8,9 @@
 
 import { useRef, useEffect, useState, useActionState } from "react";
 import { useRouter } from "next/navigation";
-import { MapPin, Plus, X } from "lucide-react";
+import { MapPin, Plus, X, Search, PenLine } from "lucide-react";
 import { crearDireccion, editarDireccion } from "@/lib/actions/filiacion.actions";
+import { normalizeAddress } from "@/lib/utils/normalizeAddress";
 import { CountrySelectorField } from "./CountrySelectorField";
 import { PlacesAutocompleteInput } from "./PlacesAutocompleteInput";
 
@@ -27,12 +28,6 @@ export type DireccionInitialData = {
   pais:          string;
   es_principal:  boolean;
 };
-
-// ─── Helper de formateo puro (usado al rellenar desde Places) ────────────────
-
-function titleCase(str: string) {
-  return str.toLowerCase().replace(/(?:^|\s)\S/g, (c) => c.toUpperCase());
-}
 
 // ─── Helpers de formateo (aplicados en onChange) ──────────────────────────────
 
@@ -71,11 +66,13 @@ export function DireccionFormModal({
   initialData?: DireccionInitialData;
   onClose?:     () => void;
 }) {
-  const dialogRef    = useRef<HTMLDialogElement>(null);
-  const formRef      = useRef<HTMLFormElement>(null);
-  const ciudadRef    = useRef<HTMLInputElement>(null);
-  const provinciaRef = useRef<HTMLInputElement>(null);
-  const cpRef        = useRef<HTMLInputElement>(null);
+  const dialogRef         = useRef<HTMLDialogElement>(null);
+  const formRef           = useRef<HTMLFormElement>(null);
+  const ciudadRef         = useRef<HTMLInputElement>(null);
+  const provinciaRef      = useRef<HTMLInputElement>(null);
+  const cpRef             = useRef<HTMLInputElement>(null);
+  const backdropDownRef   = useRef(false);
+  const calleHiddenRef    = useRef<HTMLInputElement>(null);
   const router       = useRouter();
 
   // Modo edición: action pre-configurada con bind para pasar id + contactoId
@@ -87,6 +84,27 @@ export function DireccionFormModal({
   const [showErrors, setShowErrors]       = useState(false);
   const [tipoDireccion, setTipoDireccion] = useState(initialData?.tipo ?? "FISCAL");
   const [pais, setPais]                   = useState(initialData?.pais ?? "ES");
+
+  // Modo de entrada: Places (false) o Manual (true)
+  // Edición → manual por defecto (ya tenemos datos); creación → Places
+  const [modoManual, setModoManual]   = useState(!!initialData);
+  const [tipoVia, setTipoVia]         = useState("");
+  const [nombreCalle, setNombreCalle] = useState(initialData?.calle ?? "");
+  const [numeroPiso, setNumeroPiso]   = useState("");
+
+  // Valor combinado que se envía como FormData "calle" en modo manual
+  const calleManualValue =
+    [tipoVia, nombreCalle].filter(Boolean).join(" ") +
+    (numeroPiso.trim() ? `, ${numeroPiso.trim()}` : "");
+
+  // Sincroniza el valor del campo calle oculto (modo manual) al DOM de forma imperativa.
+  // Esto garantiza que FormData.get("calle") lea el valor actual aunque React
+  // no haya propagado el atributo value del hidden input en el ciclo de render.
+  useEffect(() => {
+    if (modoManual && calleHiddenRef.current) {
+      calleHiddenRef.current.value = calleManualValue;
+    }
+  }, [modoManual, calleManualValue]);
 
   // Modo edición: auto-abrir el dialog al montar el componente
   useEffect(() => {
@@ -116,6 +134,10 @@ export function DireccionFormModal({
     setShowErrors(false);
     setTipoDireccion("FISCAL");
     setPais("ES");
+    setModoManual(false);
+    setTipoVia("");
+    setNombreCalle("");
+    setNumeroPiso("");
     formRef.current?.reset();
     dialogRef.current?.showModal();
   }
@@ -126,8 +148,8 @@ export function DireccionFormModal({
   }
 
   // Setters individuales — llamados desde PlacesAutocompleteInput al elegir sugerencia
-  const setCiudad       = (v: string) => { if (ciudadRef.current)    ciudadRef.current.value    = titleCase(v); };
-  const setProvincia    = (v: string) => { if (provinciaRef.current) provinciaRef.current.value = titleCase(v); };
+  const setCiudad       = (v: string) => { if (ciudadRef.current)    ciudadRef.current.value    = normalizeAddress(v); };
+  const setProvincia    = (v: string) => { if (provinciaRef.current) provinciaRef.current.value = normalizeAddress(v); };
   const setCodigoPostal = (v: string) => { if (cpRef.current) cpRef.current.value = v.toUpperCase(); };
 
   const errors      = showErrors && state?.success === false ? state.errors : {};
@@ -151,7 +173,8 @@ export function DireccionFormModal({
       {/* ── Dialog nativo HTML5 ── */}
       <dialog
         ref={dialogRef}
-        onClick={(e) => { if (e.target === e.currentTarget) closeDialog(); }}
+        onMouseDown={(e) => { backdropDownRef.current = e.target === e.currentTarget; }}
+        onClick={(e)     => { if (backdropDownRef.current && e.target === e.currentTarget) closeDialog(); }}
         className="m-auto w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-0 shadow-2xl backdrop:bg-black/70"
       >
         <form
@@ -215,21 +238,91 @@ export function DireccionFormModal({
               </div>
             )}
 
-            {/* Calle — Google Places Autocomplete rellena el resto al elegir */}
+            {/* Calle — toggle entre Google Places y entrada manual */}
             <div>
-              <label htmlFor="dir-calle" className={labelCls}>Calle / Vía *</label>
-              <PlacesAutocompleteInput
-                id="dir-calle"
-                name="calle"
-                required
-                defaultValue={initialData?.calle ?? ""}
-                placeholder="Empieza a escribir para buscar…"
-                className={inputCls(!!errors?.calle)}
-                setCiudad={setCiudad}
-                setCodigoPostal={setCodigoPostal}
-                setProvincia={setProvincia}
-                setPais={setPais}
-              />
+              {/* Cabecera del campo con toggle */}
+              <div className="flex items-center justify-between mb-1">
+                <label htmlFor="dir-calle" className={labelCls}>Calle / Vía *</label>
+                <button
+                  type="button"
+                  onClick={() => setModoManual((m) => !m)}
+                  className="flex items-center gap-1 text-[10px] font-medium text-zinc-500 transition-colors hover:text-orange-400"
+                >
+                  {modoManual ? (
+                    <><Search className="h-3 w-3" /> Buscar con Google</>
+                  ) : (
+                    <><PenLine className="h-3 w-3" /> Entrada manual</>
+                  )}
+                </button>
+              </div>
+
+              {/* Modo Places */}
+              {!modoManual && (
+                <PlacesAutocompleteInput
+                  id="dir-calle"
+                  name="calle"
+                  required
+                  defaultValue={initialData?.calle ?? ""}
+                  placeholder="Empieza a escribir para buscar…"
+                  className={inputCls(!!errors?.calle)}
+                  setCiudad={setCiudad}
+                  setCodigoPostal={setCodigoPostal}
+                  setProvincia={setProvincia}
+                  setPais={setPais}
+                />
+              )}
+
+              {/* Modo Manual */}
+              {modoManual && (
+                <div className="space-y-2">
+                  {/* Input oculto — valor sincronizado por ref imperativo (useEffect) */}
+                  <input type="hidden" ref={calleHiddenRef} name="calle" defaultValue={calleManualValue} />
+
+                  {/* Fila 1: Tipo de vía + Nombre de calle */}
+                  <div className="flex gap-2">
+                    <select
+                      value={tipoVia}
+                      onChange={(e) => setTipoVia(e.target.value)}
+                      className={`${inputCls(false)} w-36 flex-none`}
+                    >
+                      <option value="">Tipo</option>
+                      <option value="Calle">Calle</option>
+                      <option value="Avenida">Avenida</option>
+                      <option value="Paseo">Paseo</option>
+                      <option value="Plaza">Plaza</option>
+                      <option value="Carrer">Carrer</option>
+                      <option value="Via">Via</option>
+                      <option value="Ronda">Ronda</option>
+                      <option value="Travesía">Travesía</option>
+                      <option value="Camino">Camino</option>
+                      <option value="Urbanización">Urbanización</option>
+                      <option value="Polígono">Polígono</option>
+                      <option value="Glorieta">Glorieta</option>
+                      <option value="Boulevard">Boulevard</option>
+                      <option value="Otro">Otro</option>
+                    </select>
+                    <input
+                      type="text"
+                      value={nombreCalle}
+                      onChange={(e) => setNombreCalle(e.target.value)}
+                      onBlur={(e) => setNombreCalle(normalizeAddress(e.target.value))}
+                      placeholder="Nombre de la calle"
+                      required={modoManual}
+                      className={`${inputCls(!!errors?.calle)} flex-1`}
+                    />
+                  </div>
+
+                  {/* Fila 2: Número / Piso */}
+                  <input
+                    type="text"
+                    value={numeroPiso}
+                    onChange={(e) => setNumeroPiso(e.target.value)}
+                    placeholder="Número, piso, puerta… (ej: 12, 3º B)"
+                    className={inputCls(false)}
+                  />
+                </div>
+              )}
+
               {errors?.calle && (
                 <p className="mt-1 text-xs text-red-500">{errors.calle[0]}</p>
               )}
@@ -277,6 +370,7 @@ export function DireccionFormModal({
                   type="text"
                   defaultValue={initialData?.ciudad ?? ""}
                   onChange={applyTitleCase}
+                  onBlur={(e) => { if (modoManual) e.target.value = normalizeAddress(e.target.value); }}
                   placeholder="Madrid"
                   className={inputCls(false)}
                 />

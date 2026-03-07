@@ -20,7 +20,7 @@
 // ============================================================================
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { getCountries } from "libphonenumber-js";
+import { getCountries, parsePhoneNumberFromString } from "libphonenumber-js";
 import { getCountryCallingCode } from "react-phone-number-input";
 import type { CountryCode } from "libphonenumber-js";
 
@@ -78,6 +78,18 @@ export function CustomPhoneInput({
     );
   }, [query]);
 
+  // ─── Validez en tiempo real ────────────────────────────────────────────────
+
+  const phoneValidity: "valid" | "invalid" | "empty" = useMemo(() => {
+    if (!value.trim()) return "empty";
+    try {
+      const parsed = parsePhoneNumberFromString(value);
+      return parsed?.isValid() ? "valid" : "invalid";
+    } catch {
+      return "invalid";
+    }
+  }, [value]);
+
   // ─── Lógica mágica: inyecta prefijo al cambiar de país ────────────────────
 
   function handleCountrySelect(code: CountryCode) {
@@ -91,6 +103,20 @@ export function CustomPhoneInput({
     setCountry(code);
     setOpen(false);
     setQuery("");
+  }
+
+  // ─── Auto-detección de país al escribir el prefijo ────────────────────────
+
+  function handlePhoneChange(val: string) {
+    onChange(val);
+    if (val.startsWith("+")) {
+      try {
+        const parsed = parsePhoneNumberFromString(val);
+        if (parsed?.country && parsed.country !== country) {
+          setCountry(parsed.country as CountryCode);
+        }
+      } catch { /* no-op */ }
+    }
   }
 
   // ─── Eventos globales ──────────────────────────────────────────────────────
@@ -224,10 +250,27 @@ export function CustomPhoneInput({
         <input
           type="tel"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => handlePhoneChange(e.target.value)}
           placeholder={`+${selected?.callingCode ?? "34"} 600 000 000`}
           className="flex-1 bg-transparent px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 outline-none"
         />
+
+        {/* ── Indicador visual de validez ── */}
+        {phoneValidity !== "empty" && (
+          <div className="flex items-center pr-3">
+            {phoneValidity === "valid" ? (
+              <span
+                title="Número válido"
+                className="h-2 w-2 rounded-full bg-emerald-500"
+              />
+            ) : (
+              <span
+                title="Número incompleto o inválido para el país seleccionado"
+                className="h-2 w-2 rounded-full bg-amber-500"
+              />
+            )}
+          </div>
+        )}
       </div>
 
       {/* Error inline */}
