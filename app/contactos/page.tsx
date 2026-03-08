@@ -8,7 +8,7 @@
 // Toda la interactividad (tabs, búsqueda, badges) vive en el cliente.
 // ============================================================================
 
-import { getContactos } from "@/lib/actions/contactos.actions";
+import { getContactos } from "@/lib/modules/entidades/actions/contactos.actions";
 import { ContactosClient } from "./ContactosClient";
 
 // ─── Empty State ──────────────────────────────────────────────────────────────

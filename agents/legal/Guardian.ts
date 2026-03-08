@@ -39,7 +39,7 @@ import {
   type DependencyCheckResult,
   type InterceptDeleteVerdict,
   type QuarantineInput,
-} from "@/lib/services/legalAgent.middleware";
+} from "@/lib/modules/entidades/services/legalAgent.middleware";
 import { LegalBlockError } from "@/lib/errors/business.errors";
 import { DecisionLogger } from "@/agents/shared/DecisionLogger";
 

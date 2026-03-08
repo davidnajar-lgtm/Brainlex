@@ -14,8 +14,8 @@
 
 import Link from "next/link";
 import { ShieldAlert, RotateCcw, Clock, Skull, CheckCircle2 } from "lucide-react";
-import { contactoRepository } from "@/lib/repositories/contacto.repository";
-import { RestoreButton } from "@/app/contactos/[id]/_components/RestoreButton";
+import { contactoRepository } from "@/lib/modules/entidades/repositories/contacto.repository";
+import { RestoreButton } from "@/app/contactos/_modules/ficha/RestoreButton";
 import { PassAwayButton } from "./_components/PassAwayButton";
 import { NifVerifier } from "./_components/NifVerifier";
 

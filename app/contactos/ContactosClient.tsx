@@ -13,11 +13,12 @@
 import { useState, useMemo, useEffect, useTransition } from "react";
 import Link from "next/link";
 import { Contacto, ContactoStatus, ContactoTipo } from "@prisma/client";
-import { DeleteButton } from "./DeleteButton";
+import { DeleteButton } from "./_modules/shared/DeleteButton";
 import { Shield, Search, Archive } from "lucide-react";
-import { DataHealthCircle } from "./DataHealthCircle";
+import { DataHealthCircle } from "./_modules/shared/DataHealthCircle";
 import { calcDataHealth } from "@/lib/utils/dataHealth";
-import { searchInQuarantine, type QuarantineHit } from "@/lib/actions/contactos.actions";
+import { searchInQuarantine, type QuarantineHit } from "@/lib/modules/entidades/actions/contactos.actions";
+import { ExportDropdown } from "./_modules/listado/ExportDropdown";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -56,8 +57,8 @@ function StatusBadge({ status, isActive }: { status: ContactoStatus; isActive: b
     );
   }
   const map: Record<ContactoStatus, { label: string; className: string }> = {
-    ACTIVE:     { label: "Activo",     className: "bg-orange-500/10 text-orange-400 ring-orange-500/20" },
-    QUARANTINE: { label: "Cuarentena", className: "bg-amber-500/10 text-amber-400 ring-amber-500/20" },
+    ACTIVE:     { label: "Activo",     className: "bg-[var(--badge-activo-bg)] text-[var(--badge-activo-text)] ring-[var(--badge-activo-ring)]" },
+    QUARANTINE: { label: "Cuarentena", className: "bg-[var(--badge-cuarentena-bg)] text-[var(--badge-cuarentena-text)] ring-[var(--badge-cuarentena-ring)]" },
     FORGOTTEN:  { label: "Olvidado",   className: "bg-zinc-700/40 text-zinc-500 ring-zinc-600/20" },
   };
   const { label, className } = map[status];
@@ -72,18 +73,18 @@ function RoleBadges({ c }: { c: Contacto }) {
   return (
     <div className="flex flex-wrap justify-end gap-1">
       {c.es_facturadora && (
-        <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 bg-violet-500/15 text-violet-300 ring-violet-500/40">
+        <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 bg-[var(--badge-matriz-bg)] text-[var(--badge-matriz-text)] ring-[var(--badge-matriz-ring)]">
           <Shield className="h-2.5 w-2.5" />
           Matriz
         </span>
       )}
       {c.es_cliente && !c.es_facturadora && (
-        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 bg-emerald-500/10 text-emerald-400 ring-emerald-500/20">
+        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 bg-[var(--badge-cliente-bg)] text-[var(--badge-cliente-text)] ring-[var(--badge-cliente-ring)]">
           Cliente
         </span>
       )}
       {(c as Contacto & { es_precliente: boolean }).es_precliente && (
-        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 bg-blue-500/10 text-blue-400 ring-blue-500/20">
+        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 bg-[var(--badge-prec-bg)] text-[var(--badge-prec-text)] ring-[var(--badge-prec-ring)]">
           Pre-cliente
         </span>
       )}
@@ -130,9 +131,9 @@ function ContactosTable({ contactos }: { contactos: Contacto[] }) {
           const isPrec     = ext.es_precliente;
           const isInactive = !ext.is_active;
           const health     = calcDataHealth(c);
-          const rowAccent  = isMatriz  ? "border-l-2 border-l-violet-500/60 bg-violet-500/[0.025]"
-                           : isCliente ? "border-l-2 border-l-emerald-500/50 bg-emerald-500/[0.018]"
-                           : isPrec    ? "border-l-2 border-l-blue-500/40   bg-blue-500/[0.015]"
+          const rowAccent  = isMatriz  ? "border-l-2 border-l-indigo-500/60 bg-indigo-500/[0.025]"
+                           : isCliente ? "border-l-2 border-l-teal-500/50   bg-teal-500/[0.018]"
+                           : isPrec    ? "border-l-2 border-l-amber-500/40  bg-amber-500/[0.015]"
                            :             "border-l-2 border-l-transparent";
           return (
             <div
@@ -154,12 +155,12 @@ function ContactosTable({ contactos }: { contactos: Contacto[] }) {
                 {/* Nombre */}
                 <div className="flex min-w-0 items-center gap-2">
                   {isMatriz && (
-                    <Shield className="h-3.5 w-3.5 shrink-0 text-violet-400" />
+                    <Shield className="h-3.5 w-3.5 shrink-0 text-[var(--badge-matriz-text)]" />
                   )}
                   <span className={`truncate text-sm font-medium ${
-                    isMatriz  ? "text-violet-200 font-semibold"
-                    : isCliente ? "text-emerald-300"
-                    : isPrec    ? "text-blue-300"
+                    isMatriz  ? "text-[var(--badge-matriz-text)] font-semibold"
+                    : isCliente ? "text-[var(--badge-cliente-text)]"
+                    : isPrec    ? "text-[var(--badge-prec-text)]"
                     :             "text-zinc-100"
                   }`}>
                     {getDisplayName(c)}
@@ -268,6 +269,12 @@ export function ContactosClient({ contactos }: { contactos: Contacto[] }) {
     });
   }, [contactos, tab, query]);
 
+  // Emails del listado filtrado — para ExportDropdown → copyEmailsToClipboard
+  const emails = useMemo(
+    () => filtered.map((c) => c.email_principal ?? "").filter(Boolean),
+    [filtered]
+  );
+
   // Rayos X: solo se dispara cuando no hay resultados activos y la query es útil
   useEffect(() => {
     if (filtered.length > 0 || !query.trim() || query.trim().length < 3) {
@@ -300,11 +307,11 @@ export function ContactosClient({ contactos }: { contactos: Contacto[] }) {
                 className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                   active
                     ? key === "facturadoras"
-                      ? "bg-violet-500/20 text-violet-300 ring-1 ring-violet-500/40"
+                      ? "bg-[var(--badge-matriz-bg)] text-[var(--badge-matriz-text)] ring-1 ring-[var(--badge-matriz-ring)]"
                       : key === "clientes"
-                      ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/30"
+                      ? "bg-[var(--badge-cliente-bg)] text-[var(--badge-cliente-text)] ring-1 ring-[var(--badge-cliente-ring)]"
                       : key === "preclientes"
-                      ? "bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30"
+                      ? "bg-[var(--badge-prec-bg)] text-[var(--badge-prec-text)] ring-1 ring-[var(--badge-prec-ring)]"
                       : key === "activos" || key === "inactivos"
                       ? "bg-orange-500/20 text-orange-300 ring-1 ring-orange-500/30"
                       : "bg-zinc-700/60 text-zinc-300 ring-1 ring-zinc-500/50"
@@ -335,12 +342,15 @@ export function ContactosClient({ contactos }: { contactos: Contacto[] }) {
         </div>
       </div>
 
-      {/* Contador de resultados */}
-      <p className="text-xs text-zinc-600">
-        {filtered.length} contacto{filtered.length !== 1 ? "s" : ""}
-        {query.trim() ? ` · "${query.trim()}"` : ""}
-        {tab !== "todos" ? ` en ${TABS.find(t => t.key === tab)?.label}` : ""}
-      </p>
+      {/* Contador + Acciones de exportación */}
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-zinc-600">
+          {filtered.length} contacto{filtered.length !== 1 ? "s" : ""}
+          {query.trim() ? ` · "${query.trim()}"` : ""}
+          {tab !== "todos" ? ` en ${TABS.find(t => t.key === tab)?.label}` : ""}
+        </p>
+        <ExportDropdown emails={emails} count={filtered.length} />
+      </div>
 
       {/* ── Banner Rayos X: resultado en cuarentena ── */}
       {quarantineHit && (

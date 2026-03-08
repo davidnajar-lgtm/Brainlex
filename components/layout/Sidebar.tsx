@@ -83,7 +83,7 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="flex h-screen w-64 flex-shrink-0 flex-col bg-zinc-950">
+    <aside className="print:hidden flex h-screen w-64 flex-shrink-0 flex-col bg-zinc-950">
       {/* ── Logo / Brand ─────────────────────────────────────── */}
       <div className="flex items-center gap-3 border-b border-zinc-800 px-5 py-5">
         <LogoMark />

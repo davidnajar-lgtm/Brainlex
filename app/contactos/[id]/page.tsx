@@ -20,13 +20,14 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { ContactoTipo } from "@prisma/client";
-import { TabFiliacionClient }    from "./_components/TabFiliacionClient";
-import { TabOperativa }          from "./_components/TabOperativa";
-import { TabAdmin }              from "./_components/TabAdmin";
-import { IsActiveToggle }        from "./_components/IsActiveToggle";
-import { RolesPanel }            from "./_components/RolesPanel";
-import { DataHealthCircle }      from "@/app/contactos/DataHealthCircle";
+import { TabFiliacionClient }    from "@/app/contactos/_modules/ficha/TabFiliacionClient";
+import { TabOperativa }          from "@/app/contactos/_modules/ficha/TabOperativa";
+import { TabAdmin }              from "@/app/contactos/_modules/ficha/TabAdmin";
+import { IsActiveToggle }        from "@/app/contactos/_modules/ficha/IsActiveToggle";
+import { RolesPanel }            from "@/app/contactos/_modules/ficha/RolesPanel";
+import { DataHealthCircle }      from "@/app/contactos/_modules/shared/DataHealthCircle";
 import { calcDataHealth }        from "@/lib/utils/dataHealth";
+import { EntityActions }         from "@/app/contactos/_modules/ficha/EntityActions";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -139,6 +140,13 @@ export default async function ContactoFichaPage({
   const initials     = getInitials(displayName);
   const healthScore  = calcDataHealth(contacto);
 
+  // Roles acumulables para EntityActions y badges estáticos
+  const roles = [
+    contacto.es_facturadora                         ? "Matriz"      : null,
+    contacto.es_cliente && !contacto.es_facturadora ? "Cliente"     : null,
+    contacto.es_precliente                          ? "Pre-cliente" : null,
+  ].filter(Boolean) as string[];
+
   // Pestaña activa: cualquier valor de TAB_ORDER es válido; fallback a "vision"
   const activeTab = (TAB_ORDER.includes(tab as TabValue) ? tab : "vision") as TabValue;
 
@@ -192,16 +200,21 @@ export default async function ContactoFichaPage({
                 {contacto.tipo === ContactoTipo.PERSONA_JURIDICA ? "Persona Jurídica" : "Persona Física"}
               </p>
 
-              {/* Badge de rol (estático) */}
+              {/* Badge de rol (estático) — usa tokens dual-mode */}
               <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
                 {contacto.es_facturadora && (
-                  <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 bg-violet-500/15 text-violet-300 ring-violet-500/40">
+                  <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 bg-[var(--badge-matriz-bg)] text-[var(--badge-matriz-text)] ring-[var(--badge-matriz-ring)]">
                     MATRIZ
                   </span>
                 )}
-                {contacto.es_cliente && (
-                  <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 bg-emerald-500/10 text-emerald-400 ring-emerald-500/20">
+                {contacto.es_cliente && !contacto.es_facturadora && (
+                  <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 bg-[var(--badge-cliente-bg)] text-[var(--badge-cliente-text)] ring-[var(--badge-cliente-ring)]">
                     CLIENTE
+                  </span>
+                )}
+                {contacto.es_precliente && (
+                  <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 bg-[var(--badge-prec-bg)] text-[var(--badge-prec-text)] ring-[var(--badge-prec-ring)]">
+                    PRE-CLIENTE
                   </span>
                 )}
                 {!contacto.es_cliente && !contacto.es_precliente && !contacto.es_facturadora && (
@@ -353,6 +366,19 @@ export default async function ContactoFichaPage({
               <Pencil className="h-4 w-4" />
               Editar Ficha
             </Link>
+
+            {/* Acciones de salida — Imprimir / PDF / Email */}
+            <EntityActions
+              contact={{
+                id:       contacto.id,
+                name:     displayName,
+                fiscalId: contacto.fiscal_id       ?? undefined,
+                email:    contacto.email_principal  ?? undefined,
+                phone:    contacto.telefono_movil   ?? contacto.telefono_fijo ?? undefined,
+                roles,
+                status:   contacto.status,
+              }}
+            />
           </div>
         </aside>
 

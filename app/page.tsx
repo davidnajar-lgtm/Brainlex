@@ -81,9 +81,9 @@ export default async function DashboardPage() {
               Sistema de gestión legal y fiscal
             </p>
           </div>
-          <div className="flex items-center gap-2 rounded-full border border-emerald-900/60 bg-emerald-950/60 px-3 py-1">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            <span className="text-xs font-medium text-emerald-400">Sistema operativo</span>
+          <div className="flex items-center gap-2 rounded-full border border-[var(--badge-activo-ring)] bg-[var(--badge-activo-bg)] px-3 py-1">
+            <span className="h-2 w-2 rounded-full bg-[var(--badge-activo-text)]" />
+            <span className="text-xs font-medium text-[var(--badge-activo-text)]">Sistema operativo</span>
           </div>
         </div>
 

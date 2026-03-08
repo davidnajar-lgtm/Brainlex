@@ -3,7 +3,7 @@ import { ThemeToggle } from "@/components/ui/ThemeToggle";
 
 export default function Topbar({ title = "Panel de Control" }: { title?: string }) {
   return (
-    <header className="flex h-14 flex-shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-900 px-6">
+    <header className="print:hidden flex h-14 flex-shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-900 px-6">
       {/* Page title */}
       <div className="flex items-center gap-2 text-sm">
         <span className="font-semibold text-zinc-100">{title}</span>

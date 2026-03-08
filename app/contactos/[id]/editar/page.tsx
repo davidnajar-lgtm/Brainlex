@@ -9,7 +9,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { PencilLine } from "lucide-react";
 
-import { getContactoById } from "@/lib/actions/contactos.actions";
+import { getContactoById } from "@/lib/modules/entidades/actions/contactos.actions";
 import { EditContactoForm } from "./EditContactoForm";
 
 export default async function EditarContactoPage({

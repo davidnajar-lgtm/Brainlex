@@ -93,6 +93,64 @@ html.light {
   --color-zinc-50:  oklch(14.5% 0.004 285.88);  /* ← era zinc-950 en dark */
 }
 
+/* ── Badge Color Tokens — Roles & Status ──────────────────────────────────── */
+/* Sistema dual-mode: dark en :root, overrides en html.light.
+   Uso en componentes: bg-[var(--badge-xxx-bg)]  text-[var(--badge-xxx-text)]
+                       ring-[var(--badge-xxx-ring)]                            */
+:root {
+  /* Matriz / Facturadora — Indigo  (autoridad corporativa, poder fiscal) */
+  --badge-matriz-bg:       oklch(24.7% 0.072 262);   /* indigo-950 */
+  --badge-matriz-text:     oklch(76.3% 0.120 262);   /* indigo-300 */
+  --badge-matriz-ring:     oklch(49.1% 0.148 261);   /* indigo-600 */
+
+  /* Cliente — Teal  (revenue activo, relación consolidada) */
+  --badge-cliente-bg:      oklch(22.1% 0.047 193);   /* teal-950   */
+  --badge-cliente-text:    oklch(76.8% 0.096 189);   /* teal-300   */
+  --badge-cliente-ring:    oklch(52.4% 0.110 192);   /* teal-600   */
+
+  /* Pre-cliente — Amber/Gold  (pipeline, oportunidad caliente) */
+  --badge-prec-bg:         oklch(27.2% 0.064 66);    /* amber-950  */
+  --badge-prec-text:       oklch(86.3% 0.127 80);    /* amber-300  */
+  --badge-prec-ring:       oklch(62.0% 0.150 70);    /* amber-500  */
+
+  /* Status: Activo — Green  (vivo, confirmado) */
+  --badge-activo-bg:       oklch(22.0% 0.061 149);   /* green-950  */
+  --badge-activo-text:     oklch(79.2% 0.177 150);   /* green-400  */
+  --badge-activo-ring:     oklch(52.7% 0.154 150);   /* green-600  */
+
+  /* Status: Cuarentena — Orange  (alerta legal, acción requerida) */
+  --badge-cuarentena-bg:   oklch(26.6% 0.079 36);    /* orange-950 */
+  --badge-cuarentena-text: oklch(78.5% 0.162 60);    /* orange-300 */
+  --badge-cuarentena-ring: oklch(55.3% 0.195 38);    /* orange-700 */
+}
+
+html.light {
+  /* Matriz — Indigo claro */
+  --badge-matriz-bg:       oklch(96.2% 0.018 272);   /* indigo-50  */
+  --badge-matriz-text:     oklch(39.9% 0.139 261);   /* indigo-700 */
+  --badge-matriz-ring:     oklch(67.6% 0.133 262);   /* indigo-400 */
+
+  /* Cliente — Teal claro */
+  --badge-cliente-bg:      oklch(96.8% 0.016 198);   /* teal-50    */
+  --badge-cliente-text:    oklch(43.3% 0.098 191);   /* teal-700   */
+  --badge-cliente-ring:    oklch(63.7% 0.108 189);   /* teal-400   */
+
+  /* Pre-cliente — Amber claro */
+  --badge-prec-bg:         oklch(98.7% 0.022 91);    /* amber-50   */
+  --badge-prec-text:       oklch(46.5% 0.157 49);    /* amber-800  */
+  --badge-prec-ring:       oklch(76.9% 0.168 71);    /* amber-500  */
+
+  /* Status: Activo — Green claro */
+  --badge-activo-bg:       oklch(98.2% 0.018 156);   /* green-50   */
+  --badge-activo-text:     oklch(44.6% 0.137 151);   /* green-700  */
+  --badge-activo-ring:     oklch(67.9% 0.188 149);   /* green-400  */
+
+  /* Status: Cuarentena — Orange claro */
+  --badge-cuarentena-bg:   oklch(98.0% 0.016 74);    /* orange-50  */
+  --badge-cuarentena-text: oklch(43.5% 0.167 38);    /* orange-800 */
+  --badge-cuarentena-ring: oklch(75.7% 0.183 56);    /* orange-400 */
+}
+
 /* ── Registro Tailwind v4 ─────────────────────────────────────────────────── */
 @theme inline {
   --color-background:       var(--background);
@@ -153,4 +211,31 @@ gmp-place-autocomplete::part(input) {
 
 gmp-place-autocomplete::part(input)::placeholder {
   color: var(--content-muted) !important;
+}
+
+/* ── Print ────────────────────────────────────────────────────────────────── */
+/* Los elementos con print:hidden ya desaparecen por Tailwind.
+   Este bloque normaliza el resto: fondo blanco, tipografía legible.          */
+@media print {
+  @page {
+    margin: 1.5cm;
+    size: A4 portrait;
+  }
+
+  body {
+    background: white !important;
+    color: #09090b !important; /* zinc-950 — máximo contraste en papel */
+  }
+
+  /* El main ocupa todo el ancho al colapsar sidebar + topbar */
+  main {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  /* Evitar que cards y tablas se partan a mitad de página */
+  .rounded-xl,
+  .rounded-lg {
+    break-inside: avoid;
+  }
 }

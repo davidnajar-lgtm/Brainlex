@@ -13,13 +13,13 @@ import { useTransition, useState } from "react";
 import Link from "next/link";
 import { Mail, Smartphone, Phone, Globe, Link2 } from "lucide-react";
 import { parsePhoneNumberFromString } from "libphonenumber-js";
-import { CustomPhoneInput } from "@/app/contactos/CustomPhoneInput";
-import { SociedadCombobox } from "@/app/contactos/SociedadCombobox";
-import { updateContacto } from "@/lib/actions/contactos.actions";
+import { CustomPhoneInput } from "@/components/ui/CustomPhoneInput";
+import { SociedadCombobox } from "@/app/contactos/_modules/shared/SociedadCombobox";
+import { updateContacto } from "@/lib/modules/entidades/actions/contactos.actions";
 import type {
   UpdateContactoInput,
   ContactoFieldErrors,
-} from "@/lib/validations/contacto.schema";
+} from "@/lib/modules/entidades/validations/contacto.schema";
 import { Contacto, ContactoTipo, FiscalIdTipo } from "@prisma/client";
 
 // ─── Tipos para el bridge POI ─────────────────────────────────────────────────

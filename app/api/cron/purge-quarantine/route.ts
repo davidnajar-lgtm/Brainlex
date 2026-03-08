@@ -24,8 +24,8 @@
 import { createHash } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
-import { contactoRepository } from "@/lib/repositories/contacto.repository";
-import { legalAgent } from "@/lib/services/legalAgent.middleware";
+import { contactoRepository } from "@/lib/modules/entidades/repositories/contacto.repository";
+import { legalAgent } from "@/lib/modules/entidades/services/legalAgent.middleware";
 import { prisma } from "@/lib/prisma";
 
 // ─── Autenticación del cron ───────────────────────────────────────────────────

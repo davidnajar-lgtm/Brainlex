@@ -14,16 +14,16 @@
 import { useTransition, useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { Mail, Smartphone, Phone, Globe, Link2, MapPin, X, CheckCircle2, Search, RotateCcw, AlertTriangle } from "lucide-react";
-import { CustomPhoneInput } from "@/app/contactos/CustomPhoneInput";
-import { SociedadCombobox } from "@/app/contactos/SociedadCombobox";
-import { CompanyAutocompleteInput } from "@/app/contactos/CompanyAutocompleteInput";
-import type { DetectedAddress } from "@/app/contactos/CompanyAutocompleteInput";
-import { createContacto, resurrectionRestoreContacto } from "@/lib/actions/contactos.actions";
-import type { InlineAddressData } from "@/lib/actions/contactos.actions";
+import { CustomPhoneInput } from "@/components/ui/CustomPhoneInput";
+import { SociedadCombobox } from "@/app/contactos/_modules/shared/SociedadCombobox";
+import { CompanyAutocompleteInput } from "@/app/contactos/_modules/shared/CompanyAutocompleteInput";
+import type { DetectedAddress } from "@/app/contactos/_modules/shared/CompanyAutocompleteInput";
+import { createContacto, resurrectionRestoreContacto } from "@/lib/modules/entidades/actions/contactos.actions";
+import type { InlineAddressData } from "@/lib/modules/entidades/actions/contactos.actions";
 import type {
   CreateContactoInput,
   ContactoFieldErrors,
-} from "@/lib/validations/contacto.schema";
+} from "@/lib/modules/entidades/validations/contacto.schema";
 import { ContactoTipo, FiscalIdTipo } from "@prisma/client";
 
 // ─── Constantes ───────────────────────────────────────────────────────────────

@@ -13,7 +13,7 @@
 
 import { useState, useTransition } from "react";
 import { Skull, AlertTriangle, ShieldX, ShieldCheck, Copy, Check } from "lucide-react";
-import { passAwayContacto } from "@/lib/actions/contactos.actions";
+import { passAwayContacto } from "@/lib/modules/entidades/actions/contactos.actions";
 import { useRouter } from "next/navigation";
 
 interface PassAwayButtonProps {

@@ -13,7 +13,7 @@
 
 import { useState, useTransition } from "react";
 import { Search, ShieldCheck, ShieldOff, Loader2, Info, ChevronDown } from "lucide-react";
-import { verifyNifDeletion } from "@/lib/actions/rgpd.actions";
+import { verifyNifDeletion } from "@/lib/modules/entidades/actions/rgpd.actions";
 
 const FISCAL_ID_TIPOS = [
   "NIF", "NIE", "DNI", "PASAPORTE",

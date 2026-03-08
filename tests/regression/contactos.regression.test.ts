@@ -27,7 +27,7 @@ import {
 
 import {
   ContactoFormSchema,
-} from "@/lib/validations/contacto.schema";
+} from "@/lib/modules/entidades/validations/contacto.schema";
 
 import {
   getContactosLabels,
