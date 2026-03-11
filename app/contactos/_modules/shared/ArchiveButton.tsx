@@ -165,9 +165,15 @@ export function ArchiveButton({ id }: { id: string }) {
 
                 {/* Error inline */}
                 {error && (
-                  <div className="flex items-start gap-2 rounded-lg border border-red-800/40 bg-red-950/30 px-3 py-2.5">
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
-                    <p className="text-xs text-red-400">{error}</p>
+                  <div
+                    className="flex items-start gap-2 rounded-lg border px-3 py-2.5"
+                    style={{
+                      backgroundColor: "var(--alert-error-bg)",
+                      borderColor:     "var(--alert-error-border)",
+                    }}
+                  >
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--alert-error-icon)" }} />
+                    <p className="text-xs" style={{ color: "var(--alert-error-text)" }}>{error}</p>
                   </div>
                 )}
 

@@ -61,6 +61,16 @@ enum FiscalIdTipo {
   SIN_REGISTRO
 }
 
+/// Scope de visibilidad de una Etiqueta — @Scope-Guard
+///   GLOBAL    → visible para todos los tenants
+///   LEXCONOMY → solo visible para LX
+///   LAWTECH   → solo visible para LW
+enum EtiquetaScope {
+  GLOBAL
+  LEXCONOMY
+  LAWTECH
+}
+
 /// Acciones registradas en el AuditLog inmutable.
 enum AuditAction {
   CREATE
@@ -130,7 +140,7 @@ model Contacto {
   fiscal_id_tipo FiscalIdTipo?
 
   // — Canales de Comunicación Directos —
-  email_principal String?  @unique  /// NULL no viola @unique — varios contactos sin email son válidos
+  email_principal String?           /// Email principal — NO único: persona física y su sociedad pueden compartir email
   telefono_movil  String?           /// Número E.164 de teléfono móvil
   telefono_fijo   String?           /// Número E.164 de teléfono fijo/central
   website_url     String?           /// URL del sitio web oficial (normalizada a https://)
@@ -178,10 +188,12 @@ model Contacto {
   updated_at DateTime @updatedAt
 
   // Relaciones
-  company_links ContactoCompanyLink[]
-  expedientes   Expediente[]
-  direcciones   Direccion[]
-  canales       CanalComunicacion[]
+  company_links      ContactoCompanyLink[]
+  expedientes        Expediente[]
+  direcciones        Direccion[]
+  canales            CanalComunicacion[]
+  relaciones_origen  Relacion[] @relation("RelacionOrigen")
+  relaciones_destino Relacion[] @relation("RelacionDestino")
 
   @@unique([fiscal_id, fiscal_id_tipo]) /// Identifica única — NULL en fiscal_id excluido de la restricción
   @@index([status])
@@ -296,6 +308,133 @@ model CanalComunicacion {
 
   @@index([contactoId])
   @@map("canales_comunicacion")
+}
+
+// ============================================================================
+// TipoRelacion — Catálogo de tipos de relación entre Contactos
+//
+// GLOBAL — sin company_id. Catálogo de holding compartido entre LX y LW.
+// Ejemplos: Socio, Administrador, Cónyuge, Contraparte, Contratista, Subcontratista.
+// ============================================================================
+model TipoRelacion {
+  id          String  @id @default(cuid())
+  nombre      String  @unique
+  color       String  @default("#6b7280") /// Hex color para pills de UI
+  categoria   String  /// Agrupación visual: "Societaria" | "Procesal" | "Laboral" | "Familiar" | "Otro"
+  descripcion String?
+  es_sistema  Boolean @default(false) /// true = predefinida (no editable ni borrable)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  relaciones Relacion[]
+
+  @@index([categoria])
+  @@map("tipos_relacion")
+}
+
+// ============================================================================
+// Relacion — Relación directa entre dos Contactos
+//
+// GLOBAL — sin company_id. Coherente con Contacto siendo global.
+// Arco dirigido (origen → destino). La UI muestra ambas direcciones.
+// @@unique evita duplicados del mismo tipo para el mismo par.
+// ============================================================================
+model Relacion {
+  id               String  @id @default(cuid())
+  origen_id        String
+  destino_id       String
+  tipo_relacion_id String
+  notas            String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  origen        Contacto     @relation("RelacionOrigen",  fields: [origen_id],        references: [id])
+  destino       Contacto     @relation("RelacionDestino", fields: [destino_id],        references: [id])
+  tipo_relacion TipoRelacion @relation(fields: [tipo_relacion_id], references: [id])
+
+  @@unique([origen_id, destino_id, tipo_relacion_id])
+  @@index([origen_id])
+  @@index([destino_id])
+  @@map("relaciones")
+}
+
+// ============================================================================
+// CategoriaEtiqueta — Agrupador del Sistema SALI de Etiquetas
+//
+// GLOBAL — sin company_id. Solo Admin puede crear/editar/borrar.
+// Ejemplos: "Proceso", "Tipo Documento", "Departamento", "Financiera", "Procesal"
+// ============================================================================
+model CategoriaEtiqueta {
+  id          String  @id @default(cuid())
+  nombre      String  @unique
+  descripcion String?
+  orden       Int     @default(0) /// Ordenación manual en la UI de administración
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  etiquetas Etiqueta[]
+
+  @@map("categorias_etiqueta")
+}
+
+// ============================================================================
+// Etiqueta — Tag multidimensional del Sistema SALI
+//
+// GLOBAL — catálogo de holding. Solo Admin puede crear etiquetas.
+// Etiquetas de sistema (es_sistema=true): Facturado, Pendiente, Blueprint, URGENTE
+// Escalable: etiqueta Contactos, Expedientes, Documentos, Tareas.
+// ============================================================================
+model Etiqueta {
+  id           String        @id @default(cuid())
+  nombre       String
+  color        String        @default("#6b7280") /// Hex color para pills de UI
+  categoria_id String
+  es_sistema   Boolean       @default(false)     /// true = predefinida, no eliminable
+  scope        EtiquetaScope @default(GLOBAL)    /// @Scope-Guard: visibilidad por tenant
+  blueprint    Json?                             /// Estructura de subcarpetas para etiquetas Constructor (Servicio/Departamento)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  categoria    CategoriaEtiqueta @relation(fields: [categoria_id], references: [id])
+  asignaciones EtiquetaAsignada[]
+
+  @@unique([nombre, categoria_id])
+  @@index([categoria_id])
+  @@map("etiquetas")
+}
+
+// ============================================================================
+// EtiquetaAsignada — Tabla polimórfica de asignación de etiquetas
+//
+// entidad_tipo: "CONTACTO" | "EXPEDIENTE" | "DOCUMENTO" | "TAREA"
+// entidad_id:   CUID de la entidad referenciada.
+//
+// Sin FK polimórfica real (Prisma no soporta polimorfismo nativo).
+// La integridad referencial la garantiza la capa de servicio.
+// onDelete: Cascade — si se borra la etiqueta, se borran todas sus asignaciones.
+// ============================================================================
+model EtiquetaAsignada {
+  id           String  @id @default(cuid())
+  etiqueta_id  String
+  entidad_id   String
+  entidad_tipo String  /// "CONTACTO" | "EXPEDIENTE" | "DOCUMENTO" | "TAREA"
+  asignado_por String? /// actor_id del usuario que asignó la etiqueta
+
+  /// @Time-Keeper: timestamp de asignación (alias semántico de created_at)
+  fecha_asignacion     DateTime  @default(now())
+  /// @Time-Keeper: timestamp de desvinculación. null = etiqueta actualmente asignada
+  fecha_desvinculacion DateTime?
+
+  etiqueta Etiqueta @relation(fields: [etiqueta_id], references: [id], onDelete: Cascade)
+
+  @@unique([etiqueta_id, entidad_id, entidad_tipo])
+  @@index([entidad_id, entidad_tipo]) /// Consulta: "todas las etiquetas de este Expediente"
+  @@index([etiqueta_id])             /// Consulta: "todas las entidades con esta etiqueta"
+  @@map("etiquetas_asignadas")
 }
 
 // ============================================================================

@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useTenant } from "@/lib/context/TenantContext";
 
 const NAV_ITEMS = [
   {
@@ -52,6 +54,24 @@ const ADMIN_ITEMS = [
       </svg>
     ),
   },
+  {
+    href: "/admin/taxonomia",
+    label: "Taxonomía",
+    icon: (
+      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
+      </svg>
+    ),
+  },
+  {
+    href: "/admin/relaciones",
+    label: "Relaciones",
+    icon: (
+      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+      </svg>
+    ),
+  },
 ];
 
 const BOTTOM_ITEMS = [
@@ -67,141 +87,214 @@ const BOTTOM_ITEMS = [
   },
 ];
 
-function LogoMark() {
+function LogoMark({ color }: { color: string }) {
   return (
-    <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <polygon points="18,2 32,10 32,26 18,34 4,26 4,10" fill="none" stroke="#F97316" strokeWidth="1.5" strokeLinejoin="round" />
-      <rect x="11" y="11" width="14" height="14" rx="1" fill="none" stroke="#F97316" strokeWidth="1" strokeDasharray="3 1.5" transform="rotate(45 18 18)" />
-      <circle cx="18" cy="18" r="2.5" fill="#F97316" />
-      <line x1="18" y1="4" x2="18" y2="7" stroke="#F97316" strokeWidth="1" strokeLinecap="round" />
-      <line x1="18" y1="29" x2="18" y2="32" stroke="#F97316" strokeWidth="1" strokeLinecap="round" />
+    <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" className="transition-colors duration-300">
+      <polygon points="18,2 32,10 32,26 18,34 4,26 4,10" fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
+      <rect x="11" y="11" width="14" height="14" rx="1" fill="none" stroke={color} strokeWidth="1" strokeDasharray="3 1.5" transform="rotate(45 18 18)" />
+      <circle cx="18" cy="18" r="2.5" fill={color} />
+      <line x1="18" y1="4" x2="18" y2="7" stroke={color} strokeWidth="1" strokeLinecap="round" />
+      <line x1="18" y1="29" x2="18" y2="32" stroke={color} strokeWidth="1" strokeLinecap="round" />
     </svg>
   );
 }
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { tenant } = useTenant();
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <aside className="print:hidden flex h-screen w-64 flex-shrink-0 flex-col bg-zinc-950">
-      {/* ── Logo / Brand ─────────────────────────────────────── */}
-      <div className="flex items-center gap-3 border-b border-zinc-800 px-5 py-5">
-        <LogoMark />
-        <div className="leading-tight">
-          <p className="text-[15px] font-bold tracking-tight text-white">BRAINLEX</p>
-          <p className="text-[8.5px] font-semibold tracking-[0.18em] text-zinc-500 uppercase">Collective Genius Portal</p>
-        </div>
-      </div>
+    <div className="print:hidden relative flex flex-shrink-0 h-screen">
+      {/* ── Panel principal del sidebar ── */}
+      <aside
+        className={`relative flex h-full flex-col bg-zinc-950 transition-all duration-300 overflow-hidden ${
+          collapsed ? "w-0" : "w-64"
+        }`}
+      >
+        {/* ── Halo lateral — borde izquierdo con color del tenant ── */}
+        <div
+          className="absolute left-0 top-0 bottom-0 w-[3px] transition-colors duration-300"
+          style={{ backgroundColor: tenant.color }}
+        />
 
-      {/* ── Tenant badge ─────────────────────────────────────── */}
-      <div className="mx-4 mt-4 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2">
-        <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-600">
-          Sociedad activa
-        </p>
-        <p className="mt-0.5 text-sm font-semibold text-zinc-100">
-          Lexconomy SL
-        </p>
-        <span className="mt-1 inline-block rounded-sm bg-orange-500/15 px-1.5 py-0.5 text-[10px] font-bold text-orange-400">
-          LX
-        </span>
-      </div>
-
-      {/* ── Navigation ───────────────────────────────────────── */}
-      <nav className="mt-6 flex-1 px-3">
-        <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
-          Menú principal
-        </p>
-        <ul className="space-y-0.5">
-          {NAV_ITEMS.map((item) => {
-            const isActive = pathname === item.href;
-            return (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                    isActive
-                      ? "bg-orange-500/10 text-orange-400"
-                      : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-100"
-                  }`}
-                >
-                  <span className={isActive ? "text-orange-400" : "text-zinc-600"}>
-                    {item.icon}
-                  </span>
-                  {item.label}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
-
-      {/* ── Admin / Compliance ───────────────────────────────── */}
-      <div className="px-3 pb-2">
-        <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
-          Administración
-        </p>
-        <ul className="space-y-0.5">
-          {ADMIN_ITEMS.map((item) => {
-            const isActive = pathname.startsWith(item.href);
-            return (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                    isActive
-                      ? "bg-amber-500/10 text-amber-400"
-                      : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-100"
-                  }`}
-                >
-                  <span className={isActive ? "text-amber-400" : "text-zinc-600"}>
-                    {item.icon}
-                  </span>
-                  {item.label}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-
-      {/* ── Bottom items ─────────────────────────────────────── */}
-      <div className="border-t border-zinc-800 px-3 py-3">
-        <ul className="space-y-0.5">
-          {BOTTOM_ITEMS.map((item) => {
-            const isActive = pathname === item.href;
-            return (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                    isActive
-                      ? "bg-orange-500/10 text-orange-400"
-                      : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-100"
-                  }`}
-                >
-                  <span className={isActive ? "text-orange-400" : "text-zinc-600"}>
-                    {item.icon}
-                  </span>
-                  {item.label}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-
-        {/* User stub */}
-        <div className="mt-3 flex items-center gap-3 rounded-lg px-3 py-2.5">
-          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-orange-500/20 text-xs font-bold text-orange-400 ring-1 ring-orange-500/30">
-            AJ
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-zinc-200">
-              Arquitecto Jefe
-            </p>
-            <p className="truncate text-xs text-zinc-600">admin@brainlex.es</p>
+        {/* ── Logo / Brand ─────────────────────────────────────── */}
+        <div className="flex items-center gap-3 border-b border-zinc-800 px-5 py-5 min-w-[16rem]">
+          <LogoMark color={tenant.color} />
+          <div className="leading-tight">
+            <p className="text-[15px] font-bold tracking-tight text-white">BRAINLEX</p>
+            <p className="text-[8.5px] font-semibold tracking-[0.18em] text-zinc-500 uppercase">Collective Genius Portal</p>
           </div>
         </div>
-      </div>
-    </aside>
+
+        {/* ── Tenant badge — reactivo via TenantContext ─────────── */}
+        <div
+          className="mx-4 mt-4 rounded-md border px-3 py-2.5 transition-all duration-300 min-w-[14rem]"
+          style={{
+            borderColor: `${tenant.color}30`,
+            backgroundColor: `${tenant.color}08`,
+          }}
+        >
+          <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-600">
+            Sociedad activa
+          </p>
+          <p className="mt-0.5 text-sm font-semibold text-zinc-100">
+            {tenant.nombre}
+          </p>
+          <span
+            className="mt-1.5 inline-block rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider transition-colors duration-300"
+            style={{ backgroundColor: `${tenant.color}20`, color: tenant.color }}
+          >
+            {tenant.id === "LX" ? "LEXCONOMY" : "LAWTECH"}
+          </span>
+        </div>
+
+        {/* ── Navigation ───────────────────────────────────────── */}
+        <nav className="mt-6 flex-1 px-3 min-w-[16rem]">
+          <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
+            Menú principal
+          </p>
+          <ul className="space-y-0.5">
+            {NAV_ITEMS.map((item) => {
+              const isActive = pathname === item.href;
+              return (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-300 ${
+                      isActive
+                        ? ""
+                        : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-100"
+                    }`}
+                    style={isActive ? {
+                      backgroundColor: `${tenant.color}15`,
+                      color: tenant.color,
+                    } : undefined}
+                  >
+                    <span
+                      className={isActive ? "" : "text-zinc-600"}
+                      style={isActive ? { color: tenant.color } : undefined}
+                    >
+                      {item.icon}
+                    </span>
+                    {item.label}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+
+        {/* ── Admin / Compliance ───────────────────────────────── */}
+        <div className="px-3 pb-2 min-w-[16rem]">
+          <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
+            Administración
+          </p>
+          <ul className="space-y-0.5">
+            {ADMIN_ITEMS.map((item) => {
+              const isActive = pathname.startsWith(item.href);
+              return (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-300 ${
+                      isActive
+                        ? ""
+                        : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-100"
+                    }`}
+                    style={isActive ? {
+                      backgroundColor: `${tenant.color}15`,
+                      color: tenant.color,
+                    } : undefined}
+                  >
+                    <span
+                      className={isActive ? "" : "text-zinc-600"}
+                      style={isActive ? { color: tenant.color } : undefined}
+                    >
+                      {item.icon}
+                    </span>
+                    {item.label}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        {/* ── Bottom items ─────────────────────────────────────── */}
+        <div className="border-t border-zinc-800 px-3 py-3 min-w-[16rem]">
+          <ul className="space-y-0.5">
+            {BOTTOM_ITEMS.map((item) => {
+              const isActive = pathname === item.href;
+              return (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-300 ${
+                      isActive
+                        ? ""
+                        : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-100"
+                    }`}
+                    style={isActive ? {
+                      backgroundColor: `${tenant.color}15`,
+                      color: tenant.color,
+                    } : undefined}
+                  >
+                    <span
+                      className={isActive ? "" : "text-zinc-600"}
+                      style={isActive ? { color: tenant.color } : undefined}
+                    >
+                      {item.icon}
+                    </span>
+                    {item.label}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+
+          {/* User stub */}
+          <div className="mt-3 flex items-center gap-3 rounded-lg px-3 py-2.5">
+            <div
+              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold ring-1 transition-colors duration-300"
+              style={{
+                backgroundColor: `${tenant.color}20`,
+                color: tenant.color,
+                boxShadow: `0 0 0 1px ${tenant.color}30`,
+              }}
+            >
+              AJ
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-zinc-200">
+                Arquitecto Jefe
+              </p>
+              <p className="truncate text-xs text-zinc-600">admin@brainlex.es</p>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* ── Borde derecho con toggle — color del tenant ── */}
+      <button
+        onClick={() => setCollapsed((c) => !c)}
+        className="group relative flex h-full w-6 flex-shrink-0 cursor-pointer items-center justify-center transition-colors duration-300 hover:brightness-110"
+        style={{ backgroundColor: tenant.color }}
+        aria-label={collapsed ? "Expandir menú" : "Contraer menú"}
+        title={collapsed ? "Expandir menú" : "Contraer menú"}
+      >
+        <svg
+          className={`h-4 w-4 text-white/90 transition-transform duration-300 group-hover:text-white ${
+            collapsed ? "rotate-180" : ""
+          }`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2.5}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+        </svg>
+      </button>
+    </div>
   );
 }

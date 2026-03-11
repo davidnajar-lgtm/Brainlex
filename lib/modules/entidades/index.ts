@@ -29,3 +29,25 @@ export { ContactoFormSchema } from "./validations/contacto.schema";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 export { isMatrizCif } from "./config/matrizConfig";
+
+// ─── Motor de Clasificación Multidimensional (SALI + Grafo) ───────────────────
+export {
+  categoriaEtiquetaRepository,
+  etiquetaRepository,
+  etiquetaAsignadaRepository,
+} from "./repositories/etiqueta.repository";
+export type {
+  EntidadTipo,
+  EtiquetaConCategoria,
+  CategoriaConEtiquetas,
+} from "./repositories/etiqueta.repository";
+
+export {
+  tipoRelacionRepository,
+  relacionRepository,
+} from "./repositories/relacion.repository";
+export type { RelacionCompleta } from "./repositories/relacion.repository";
+
+// Acciones — importar directamente por restricción Next.js 15:
+//   import { getCategorias, createEtiqueta, ... } from "@/lib/modules/entidades/actions/etiquetas.actions"
+//   import { getTiposRelacion, createRelacion, ... } from "@/lib/modules/entidades/actions/relaciones.actions"

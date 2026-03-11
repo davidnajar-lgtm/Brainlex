@@ -283,6 +283,62 @@ export const contactoRepository = {
       },
     });
   },
+
+  // ── Filtro Universal Multidimensional (TAREA 3) ─────────────────────────────
+  //
+  // Devuelve los Contactos ACTIVE que cumplan la intersección (AND) de:
+  //   · etiqueta_ids  → contacto tiene TODAS las etiquetas indicadas
+  //   · tipo_relacion_ids → contacto participa en TODOS los tipos de relación indicados
+  //
+  // Si ambas listas están vacías, devuelve todos los contactos activos (comportamiento
+  // de findAll estándar). Este método es la columna vertebral del futuro visor de nodos.
+  //
+  // Limitación conocida: EtiquetaAsignada es polimórfica sin FK real → la intersección
+  // se resuelve en memoria (dos queries previas). Aceptable para < 10.000 contactos.
+
+  async findByInterseccion(filter: {
+    etiqueta_ids?:       string[];
+    tipo_relacion_ids?:  string[];
+    status?:             ContactoStatus;
+  }): Promise<Contacto[]> {
+    const { etiqueta_ids = [], tipo_relacion_ids = [], status = ContactoStatus.ACTIVE } = filter;
+
+    // Resuelve el conjunto de IDs válidos para cada dimensión
+    let allowedIds: Set<string> | null = null;
+
+    function intersect(ids: string[]) {
+      allowedIds = allowedIds === null
+        ? new Set(ids)
+        : new Set(ids.filter((id) => allowedIds!.has(id)));
+    }
+
+    if (etiqueta_ids.length > 0) {
+      const { etiquetaAsignadaRepository } = await import(
+        "@/lib/modules/entidades/repositories/etiqueta.repository"
+      );
+      const ids = await etiquetaAsignadaRepository.findEntidadesConTodasLasEtiquetas(
+        etiqueta_ids,
+        "CONTACTO"
+      );
+      intersect(ids);
+    }
+
+    if (tipo_relacion_ids.length > 0) {
+      const { relacionRepository } = await import(
+        "@/lib/modules/entidades/repositories/relacion.repository"
+      );
+      const ids = await relacionRepository.findContactosConTodosLosTipos(tipo_relacion_ids);
+      intersect(ids);
+    }
+
+    return prisma.contacto.findMany({
+      where: {
+        status,
+        ...(allowedIds !== null ? { id: { in: [...(allowedIds as Set<string>)] } } : {}),
+      },
+      orderBy: [{ es_facturadora: "desc" }, { created_at: "asc" }],
+    });
+  },
 };
 
 // ─── Repositorio de SociedadHolding (solo lectura aquí) ──────────────────────

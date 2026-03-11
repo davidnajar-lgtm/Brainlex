@@ -55,7 +55,14 @@ function EmptyState() {
 
 function ErrorState({ message }: { message: string }) {
   return (
-    <div className="rounded-xl border border-red-900/40 bg-red-950/20 p-6 text-sm text-red-400">
+    <div
+      className="rounded-xl border p-6 text-sm"
+      style={{
+        backgroundColor: "var(--alert-error-bg)",
+        borderColor:     "var(--alert-error-border)",
+        color:           "var(--alert-error-text)",
+      }}
+    >
       <span className="font-semibold">Error al cargar Contactos:</span> {message}
     </div>
   );

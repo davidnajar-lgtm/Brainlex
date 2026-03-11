@@ -1,0 +1,729 @@
+"use client";
+
+// ============================================================================
+// app/contactos/_modules/ficha/CommandCenter.tsx — CORE-DROP v3
+//
+// Consola de mando: 3 columnas fijas a 100vh, sin scroll global.
+//
+//   COL-IZQ (45%)    — Ficha del contacto (RSC children) — consulta
+//   COL-CENTRO (25%) — DROP ZONE compacta + tags asignados — impacto
+//   COL-DER (30%)    — Taxonomia: 5 cajones SALI (HARD-CODED) — fuente
+//
+// PURGA: Solo 5 categorias validas (Identidad, Departamento, Servicio,
+//        Estado, Inteligencia). Cualquier otra se oculta.
+//
+// Flujo: DERECHA → CENTRO (drag de etiqueta al drop zone)
+//
+// @role: @Frontend-UX
+// @spec: Fase 4.3 — Limpieza taxonomica + ajuste proporciones
+// ============================================================================
+
+import { useState, useEffect, useTransition, useCallback, createContext, useContext, type ReactNode, type DragEvent } from "react";
+import { Folder, Tag, X, Pencil, Zap, ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
+import Link from "next/link";
+import { useTenant } from "@/lib/context/TenantContext";
+import { useToast } from "@/components/ui/Toast";
+import { getCategoriaTipo } from "@/lib/config/categoriaTipos";
+import {
+  getEtiquetasByTenant,
+  getEtiquetasDeEntidad,
+  asignarEtiqueta,
+  desasignarEtiqueta,
+} from "@/lib/modules/entidades/actions/etiquetas.actions";
+import { createDriveFolder, buildDriveFolderTree, isYearTag, type DriveFolderNode } from "@/lib/services/driveMock.service";
+
+// ─── 5 cajones SALI — estructura rigida, no ampliable ───────────────────────
+
+const CAJONES_VALIDOS = new Set(["Identidad", "Departamento", "Servicio", "Estado", "Inteligencia"]);
+
+// Orden visual: constructores (carpetas) primero, luego atributos
+const ORDEN_VISUAL: Record<string, number> = {
+  "Departamento": 1,
+  "Servicio":     2,
+  "Identidad":    3,
+  "Estado":       4,
+  "Inteligencia": 5,
+};
+
+// ─── Tipos ────────────────────────────────────────────────────────────────────
+
+interface EtiquetaOption {
+  id:         string;
+  nombre:     string;
+  color:      string;
+  es_sistema: boolean;
+  scope:      string;
+  categoria:  { id: string; nombre: string };
+}
+
+interface CategoriaGroup {
+  id:        string;
+  nombre:    string;
+  etiquetas: EtiquetaOption[];
+}
+
+interface AssignedTag {
+  id:          string;
+  etiqueta_id: string;
+  etiqueta:    {
+    id:        string;
+    nombre:    string;
+    color:     string;
+    blueprint: string[] | null;
+    categoria: { id: string; nombre: string };
+  };
+}
+
+interface DropPayload {
+  id:              string;
+  nombre:          string;
+  color:           string;
+  categoriaNombre: string;
+  categoriaTipo:   "CONSTRUCTOR" | "ATRIBUTO";
+}
+
+interface CommandCenterProps {
+  contactoId:   string;
+  contactoName: string;
+  children:     ReactNode;
+}
+
+// ─── Context para compartir tags asignados con componentes hijos ─────────────
+
+const AssignedTagsContext = createContext<AssignedTag[]>([]);
+const ClassificationToggleContext = createContext<{
+  open: boolean;
+  toggle: () => void;
+  accentColor: string;
+}>({ open: false, toggle: () => {}, accentColor: "#f97316" });
+
+/**
+ * Tira vertical de etiquetas asignadas — se coloca dentro de la identity card
+ * en page.tsx (RSC). Lee los tags desde el contexto de CommandCenter.
+ */
+export function AssignedTagsStrip() {
+  const assigned = useContext(AssignedTagsContext);
+  const { tenant } = useTenant();
+
+  // Solo atributos — los constructores se ven en el simulador de Drive
+  const atributos = assigned.filter((a) => getCategoriaTipo(a.etiqueta.categoria.nombre) === "ATRIBUTO");
+  if (atributos.length === 0) return null;
+
+  return (
+    <div
+      className="flex-1 flex flex-wrap content-start items-start gap-1 border-l px-2 py-2 overflow-hidden"
+      style={{ borderLeftColor: `${tenant.color}20`, maxHeight: "140px" }}
+    >
+      {atributos.map((a) => (
+        <span
+          key={a.id}
+          className="inline-flex items-center gap-1 rounded-full px-1.5 py-[1px] text-[9px] font-medium ring-1 ring-inset whitespace-nowrap"
+          style={{ backgroundColor: `${a.etiqueta.color}10`, color: a.etiqueta.color }}
+          title={`${a.etiqueta.nombre} (${a.etiqueta.categoria.nombre})`}
+        >
+          <span
+            className="h-1.5 w-1.5 rounded-full shrink-0"
+            style={{ backgroundColor: a.etiqueta.color }}
+          />
+          {a.etiqueta.nombre}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Botón toggle + label para abrir/cerrar el panel de clasificación.
+ * Se coloca en la identity card de page.tsx, a la derecha de las etiquetas.
+ */
+export function ClassificationToggle() {
+  const { open, toggle, accentColor } = useContext(ClassificationToggleContext);
+
+  return (
+    <div
+      className="shrink-0 flex flex-col items-center justify-center gap-1.5 px-3 border-l"
+      style={{ borderLeftColor: `${accentColor}20` }}
+    >
+      <button
+        onClick={toggle}
+        className="flex h-8 w-8 items-center justify-center rounded-full border-2 transition-all duration-200 hover:scale-110"
+        style={{
+          borderColor: accentColor,
+          color: accentColor,
+          backgroundColor: `${accentColor}15`,
+        }}
+        title={open ? "Volver a la ficha" : "Atributos y estructura de carpetas"}
+      >
+        {open
+          ? <ChevronRight className="h-4 w-4" />
+          : <ChevronLeft className="h-4 w-4" />
+        }
+      </button>
+      <div className="flex flex-col items-center select-none" style={{ color: `${accentColor}60` }}>
+        <span className="text-[8px] font-bold uppercase tracking-widest">Atributos</span>
+        <span className="text-[10px] font-light leading-none">+</span>
+        <span className="text-[8px] font-bold uppercase tracking-widest">Carpetas</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── CommandCenter ────────────────────────────────────────────────────────────
+
+export function CommandCenter({ contactoId, contactoName, children }: CommandCenterProps) {
+  const { tenant, isSuperAdmin } = useTenant();
+  const { toast } = useToast();
+  const [isPending, startTransition] = useTransition();
+
+  const [grupos, setGrupos]                       = useState<CategoriaGroup[]>([]);
+  const [assigned, setAssigned]                   = useState<AssignedTag[]>([]);
+  const [isOverAtributos, setIsOverAtributos]     = useState(false);
+  const [isOverCarpetas, setIsOverCarpetas]       = useState(false);
+  const [classificationOpen, setClassificationOpen] = useState(false);
+
+  useEffect(() => {
+    startTransition(async () => {
+      const [gRes, aRes] = await Promise.all([
+        getEtiquetasByTenant(tenant.scope, isSuperAdmin),
+        getEtiquetasDeEntidad(contactoId, "CONTACTO"),
+      ]);
+      if (gRes.ok) {
+        // Server ya filtra y ordena los 5 cajones SALI.
+        // Filtro redundante como defensa en profundidad.
+        const all = (gRes.data as CategoriaGroup[])
+          .filter((g) => CAJONES_VALIDOS.has(g.nombre))
+          .sort((a, b) => (ORDEN_VISUAL[a.nombre] ?? 99) - (ORDEN_VISUAL[b.nombre] ?? 99));
+        setGrupos(all);
+      }
+      if (aRes.ok) setAssigned(aRes.data as unknown as AssignedTag[]);
+    });
+  }, [tenant.scope, isSuperAdmin, contactoId]);
+
+  const isAlreadyAssigned = useCallback(
+    (etiquetaId: string) => assigned.some((a) => a.etiqueta_id === etiquetaId),
+    [assigned]
+  );
+
+  // ─── Handlers ──────────────────────────────────────────────────────────────
+
+  async function handleAssign(payload: DropPayload) {
+    if (isAlreadyAssigned(payload.id)) {
+      toast({ message: `"${payload.nombre}" ya asignada`, variant: "warning", icon: "tag" });
+      return;
+    }
+    const result = await asignarEtiqueta(payload.id, contactoId, "CONTACTO");
+    if (!result.ok) { toast({ message: result.error, variant: "error" }); return; }
+
+    // Actualización optimista — solo añade la etiqueta que el usuario eligió
+    const optimisticTag: AssignedTag = {
+      id:          `opt-${payload.id}`,
+      etiqueta_id: payload.id,
+      etiqueta: {
+        id:        payload.id,
+        nombre:    payload.nombre,
+        color:     payload.color,
+        blueprint: null,
+        categoria: {
+          id:     payload.categoriaNombre,
+          nombre: payload.categoriaNombre,
+        },
+      },
+    };
+    setAssigned((prev) => [...prev, optimisticTag]);
+
+    if (payload.categoriaTipo === "CONSTRUCTOR") {
+      const dr = await createDriveFolder({
+        contactoId, contactoName,
+        categoriaNombre: payload.categoriaNombre,
+        etiquetaNombre:  payload.nombre,
+      });
+      if (dr.success) {
+        toast({ message: `[SIMULACION] Carpeta: ${dr.path}`, variant: "info", icon: "folder" });
+      }
+    } else {
+      toast({ message: `"${payload.nombre}" guardado`, variant: "success", icon: "tag" });
+    }
+  }
+
+  async function handleRemove(etiquetaId: string, nombre: string) {
+    const result = await desasignarEtiqueta(etiquetaId, contactoId, "CONTACTO");
+    if (result.ok) {
+      setAssigned((prev) => prev.filter((a) => a.etiqueta_id !== etiquetaId));
+      toast({ message: `"${nombre}" desvinculada`, variant: "info", icon: "tag" });
+    }
+  }
+
+  async function handlePaletteClick(e: EtiquetaOption) {
+    if (isAlreadyAssigned(e.id)) return;
+    await handleAssign({
+      id: e.id, nombre: e.nombre, color: e.color,
+      categoriaNombre: e.categoria.nombre,
+      categoriaTipo: getCategoriaTipo(e.categoria.nombre),
+    });
+  }
+
+  function makeDragData(e: EtiquetaOption): string {
+    return JSON.stringify({
+      id: e.id, nombre: e.nombre, color: e.color,
+      categoriaNombre: e.categoria.nombre,
+      categoriaTipo: getCategoriaTipo(e.categoria.nombre),
+    } satisfies DropPayload);
+  }
+
+  // ─── Drop Zone handlers — dos zonas tipadas ──────────────────────────────
+
+  function makeDropHandlers(
+    zone: "ATRIBUTO" | "CONSTRUCTOR",
+    setOver: (v: boolean) => void,
+  ) {
+    return {
+      onDragOver(e: DragEvent) {
+        if (isPending) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        setOver(true);
+      },
+      onDragLeave(e: DragEvent) {
+        if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+        setOver(false);
+      },
+      onDrop(e: DragEvent) {
+        e.preventDefault();
+        setOver(false);
+        if (isPending) return;
+        try {
+          const payload = JSON.parse(e.dataTransfer.getData("text/plain")) as DropPayload;
+          if (!payload.id) return;
+          // Solo acepta tags del tipo correspondiente a esta zona
+          if (payload.categoriaTipo !== zone) {
+            const esperado = zone === "CONSTRUCTOR" ? "Carpetas" : "Atributos";
+            toast({ message: `Esta etiqueta no es de tipo ${esperado}`, variant: "warning", icon: "tag" });
+            return;
+          }
+          handleAssign(payload);
+        } catch { /* ignore */ }
+      },
+    };
+  }
+
+  const dropAtributos = makeDropHandlers("ATRIBUTO", setIsOverAtributos);
+  const dropCarpetas  = makeDropHandlers("CONSTRUCTOR", setIsOverCarpetas);
+
+  // Group assigned by category
+  const assignedByCategoria = assigned.reduce<Record<string, AssignedTag[]>>((acc, a) => {
+    const cat = a.etiqueta.categoria.nombre;
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(a);
+    return acc;
+  }, {});
+
+  const assignedConstructores = assigned.filter((a) => getCategoriaTipo(a.etiqueta.categoria.nombre) === "CONSTRUCTOR");
+  const assignedAtributos     = assigned.filter((a) => getCategoriaTipo(a.etiqueta.categoria.nombre) === "ATRIBUTO");
+
+  const accentColor = tenant.color;
+
+  // Build folder tree from assigned Constructor tags
+  const constructorTags = assigned
+    .filter((a) => getCategoriaTipo(a.etiqueta.categoria.nombre) === "CONSTRUCTOR")
+    .map((a) => ({
+      categoriaNombre: a.etiqueta.categoria.nombre,
+      etiquetaNombre:  a.etiqueta.nombre,
+      blueprint:       a.etiqueta.blueprint,
+    }));
+  // Extract year tags from assigned Identidad (ATRIBUTO) tags
+  const yearTags = assigned
+    .filter((a) => a.etiqueta.categoria.nombre === "Identidad" && isYearTag(a.etiqueta.nombre))
+    .map((a) => a.etiqueta.nombre);
+  const folderTree = buildDriveFolderTree(contactoName, constructorTags, yearTags);
+
+  // ─── Render ────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="flex h-full">
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          COL-IZQ — Ficha del contacto — consulta
+          Cuando classificationOpen=false: 100%. Cuando true: 45%.
+          ══════════════════════════════════════════════════════════════════ */}
+      <div
+        className={`shrink-0 overflow-hidden flex transition-all duration-300 relative ${
+          classificationOpen ? "w-[45%] border-r-2" : "w-full"
+        }`}
+        style={{ borderRightColor: classificationOpen ? `${accentColor}25` : "transparent" }}
+      >
+        {/* ── Contenido principal de la ficha ── */}
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+
+        {/* Ficha — when classificationOpen, hide tab content and shrink to natural height */}
+        {/* Clicking a tab also closes classification */}
+        <div
+          className={classificationOpen
+            ? "shrink-0 [&_[data-slot=tab-content]]:hidden [&_[data-slot=tab-bar]]:opacity-40 [&_[data-slot=tab-bar]]:hover:opacity-80 [&_[data-slot=tab-bar]]:transition-opacity [&_[data-slot=tab-bar]]:cursor-pointer [&_[data-slot=tab-bar]_a]:!border-transparent [&_[data-slot=tab-bar]_a]:!text-zinc-600"
+            : "flex-1 overflow-y-auto"
+          }
+          onClick={(e) => {
+            if (!classificationOpen) return;
+            const target = e.target as HTMLElement;
+            if (target.closest("[data-slot=tab-bar] a")) {
+              setClassificationOpen(false);
+            }
+          }}
+        >
+          <AssignedTagsContext.Provider value={assigned}>
+            <ClassificationToggleContext.Provider value={{
+              open: classificationOpen,
+              toggle: () => setClassificationOpen((v) => !v),
+              accentColor,
+            }}>
+              {children}
+            </ClassificationToggleContext.Provider>
+          </AssignedTagsContext.Provider>
+        </div>
+
+        {/* Drive simulation — shown inline when classification is open */}
+        {classificationOpen && (
+          <div className="flex-1 overflow-y-auto border-t border-zinc-800">
+            <div className="px-3 py-2 border-b border-zinc-800 shrink-0 flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Folder className="h-3.5 w-3.5" style={{ color: accentColor }} />
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                  Simulador de carpetas en Drive
+                </p>
+              </div>
+              <span className="rounded-sm bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-500/70">
+                Preview
+              </span>
+            </div>
+            <div className="px-3 py-3">
+              {constructorTags.length === 0 ? (
+                <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-6 text-center">
+                  <Folder className="h-5 w-5 text-zinc-700" />
+                  <p className="mt-1.5 text-[11px] text-zinc-600">
+                    Sin carpetas por crear
+                  </p>
+                  <p className="mt-0.5 text-[9px] text-zinc-700">
+                    Asigna etiquetas de Departamento o Servicio para generar estructura
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <FolderTreeView key={constructorTags.map(t => t.etiquetaNombre).join(",")} node={folderTree} depth={0} accentColor={accentColor} />
+                  <p className="mt-3 text-[9px] text-zinc-700">
+                    {constructorTags.length} carpeta{constructorTags.length > 1 ? "s" : ""} de trabajo · cada una con subcarpetas automaticas
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+        </div>{/* cierre contenido principal de la ficha */}
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          PANELES DE CLASIFICACIÓN — visibles solo cuando classificationOpen
+          ══════════════════════════════════════════════════════════════════ */}
+      {classificationOpen && (
+      <>
+      {/* COL-CENTRO — DOS DROP ZONES: Carpetas + Atributos */}
+      <div
+        className="w-[25%] shrink-0 flex flex-col overflow-hidden border-r-2 transition-colors duration-300"
+        style={{ borderRightColor: `${accentColor}25` }}
+      >
+        {/* Borde superior diferenciador */}
+        <div
+          className="h-[3px] shrink-0"
+          style={{ background: `linear-gradient(90deg, #f59e0b, ${accentColor}, #8b5cf6)` }}
+        />
+        {/* ── DROP CARPETAS (Constructores → Drive) ──────────────────── */}
+        <div
+          className="flex flex-col transition-all duration-200 border-b border-zinc-800"
+          style={{ backgroundColor: isOverCarpetas ? `${accentColor}08` : "transparent" }}
+          {...dropCarpetas}
+        >
+          <div
+            className="h-[2px] shrink-0 transition-all duration-300"
+            style={{
+              backgroundColor: isOverCarpetas ? "#f59e0b" : "#f59e0b40",
+              boxShadow: isOverCarpetas ? "0 0 8px #f59e0b50" : "none",
+            }}
+          />
+          <div className="px-3 py-2 shrink-0">
+            <div className="flex items-center gap-1.5">
+              <Folder
+                className="h-3.5 w-3.5 shrink-0 transition-colors duration-200"
+                style={{ color: isOverCarpetas ? "#f59e0b" : "#f59e0b80" }}
+              />
+              <p
+                className="text-[10px] font-semibold uppercase tracking-wider transition-colors duration-200"
+                style={{ color: isOverCarpetas ? "#f59e0b" : "#f59e0b80" }}
+              >
+                {isOverCarpetas ? "Suelta para crear carpeta" : "Carpetas"}
+              </p>
+              {isPending && <Zap className="h-3 w-3 text-zinc-600 animate-pulse ml-auto" />}
+            </div>
+          </div>
+          {/* Constructor tags asignados */}
+          <div className="px-3 pb-2">
+            {assignedConstructores.length === 0 ? (
+              <div
+                className="rounded-md border border-dashed py-3 text-center transition-colors duration-200"
+                style={{ borderColor: isOverCarpetas ? "#f59e0b" : "#f59e0b20" }}
+              >
+                <p className="text-[9px] text-zinc-700">
+                  Arrastra Departamento o Servicio
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {Object.entries(assignedByCategoria)
+                  .filter(([catName]) => getCategoriaTipo(catName) === "CONSTRUCTOR")
+                  .sort(([a], [b]) => (ORDEN_VISUAL[a] ?? 99) - (ORDEN_VISUAL[b] ?? 99))
+                  .map(([catName, tags]) => (
+                  <div key={catName} className="rounded-md border border-zinc-800/60 bg-zinc-900/30 p-1.5">
+                    <div className="flex items-center gap-1 mb-1">
+                      <Folder className="h-2.5 w-2.5 text-amber-500" />
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-500">{catName}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {tags.map((a) => (
+                        <span
+                          key={a.id}
+                          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset"
+                          style={{ backgroundColor: `${a.etiqueta.color}15`, color: a.etiqueta.color }}
+                        >
+                          <Folder className="h-2 w-2" />
+                          {a.etiqueta.nombre}
+                          <button onClick={() => handleRemove(a.etiqueta_id, a.etiqueta.nombre)} className="opacity-40 hover:opacity-100 transition-opacity">
+                            <X className="h-2.5 w-2.5" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── DROP ATRIBUTOS (Metadatos) ─────────────────────────────── */}
+        <div
+          className="flex-1 flex flex-col transition-all duration-200 overflow-hidden"
+          style={{ backgroundColor: isOverAtributos ? `${accentColor}08` : "transparent" }}
+          {...dropAtributos}
+        >
+          <div
+            className="h-[2px] shrink-0 transition-all duration-300"
+            style={{
+              backgroundColor: isOverAtributos ? "#8b5cf6" : "#8b5cf640",
+              boxShadow: isOverAtributos ? "0 0 8px #8b5cf650" : "none",
+            }}
+          />
+          <div className="px-3 py-2 shrink-0">
+            <div className="flex items-center gap-1.5">
+              <Tag
+                className="h-3.5 w-3.5 shrink-0 transition-colors duration-200"
+                style={{ color: isOverAtributos ? "#8b5cf6" : "#8b5cf680" }}
+              />
+              <p
+                className="text-[10px] font-semibold uppercase tracking-wider transition-colors duration-200"
+                style={{ color: isOverAtributos ? "#8b5cf6" : "#8b5cf680" }}
+              >
+                {isOverAtributos ? "Suelta para asignar" : "Atributos"}
+              </p>
+            </div>
+          </div>
+          {/* Atributo tags asignados */}
+          <div className="flex-1 overflow-y-auto px-3 pb-2">
+            {assignedAtributos.length === 0 ? (
+              <div
+                className="rounded-md border border-dashed py-3 text-center transition-colors duration-200"
+                style={{ borderColor: isOverAtributos ? "#8b5cf6" : "#8b5cf620" }}
+              >
+                <p className="text-[9px] text-zinc-700">
+                  Arrastra Identidad, Estado o Inteligencia
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {Object.entries(assignedByCategoria)
+                  .filter(([catName]) => getCategoriaTipo(catName) === "ATRIBUTO")
+                  .sort(([a], [b]) => (ORDEN_VISUAL[a] ?? 99) - (ORDEN_VISUAL[b] ?? 99))
+                  .map(([catName, tags]) => (
+                  <div key={catName} className="rounded-md border border-zinc-800/60 bg-zinc-900/30 p-1.5">
+                    <div className="flex items-center gap-1 mb-1">
+                      <Tag className="h-2.5 w-2.5 text-violet-500" />
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-500">{catName}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {tags.map((a) => (
+                        <span
+                          key={a.id}
+                          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset"
+                          style={{ backgroundColor: `${a.etiqueta.color}15`, color: a.etiqueta.color }}
+                        >
+                          <Tag className="h-2 w-2" />
+                          {a.etiqueta.nombre}
+                          <button onClick={() => handleRemove(a.etiqueta_id, a.etiqueta.nombre)} className="opacity-40 hover:opacity-100 transition-opacity">
+                            <X className="h-2.5 w-2.5" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          COL-DER (30%) — Taxonomia: 5 cajones SALI (HARD-CODED)
+          ══════════════════════════════════════════════════════════════════ */}
+      <div className="w-[30%] shrink-0 flex flex-col overflow-hidden">
+        <div className="px-3 py-2 border-b border-zinc-800 shrink-0 flex items-center justify-between">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            Taxonomia · 5 cajones
+          </p>
+          <Link
+            href="/admin/taxonomia"
+            className="flex items-center gap-1 text-[10px] text-zinc-600 hover:text-zinc-300 transition-colors"
+          >
+            <Pencil className="h-2.5 w-2.5" />
+            Admin
+          </Link>
+        </div>
+
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {grupos.map((grupo, idx) => {
+            const catTipo = getCategoriaTipo(grupo.nombre);
+            const IconComp = catTipo === "CONSTRUCTOR" ? Folder : Tag;
+            const iconColor = catTipo === "CONSTRUCTOR" ? "#f59e0b" : "#8b5cf6";
+            const prevOrden = idx > 0 ? (ORDEN_VISUAL[grupos[idx - 1]?.nombre] ?? 0) : 0;
+            const currOrden = ORDEN_VISUAL[grupo.nombre] ?? 0;
+            const showSeparator = prevOrden <= 2 && currOrden >= 3;
+            return (
+              <div key={grupo.id} className="shrink-0">
+                {showSeparator && (
+                  <div className="flex items-center gap-2 px-2 py-1">
+                    <div className="h-px flex-1 bg-zinc-700/40" />
+                    <span className="text-[8px] font-medium uppercase tracking-wider text-zinc-600">Atributos</span>
+                    <div className="h-px flex-1 bg-zinc-700/40" />
+                  </div>
+                )}
+                {/* Category header — ultra-compact */}
+                <div className="flex items-center gap-1 px-2 pt-1.5 pb-0">
+                  <IconComp className="h-2.5 w-2.5 shrink-0" style={{ color: iconColor }} />
+                  <p className="text-[8px] font-bold uppercase tracking-widest text-zinc-600 flex-1">
+                    {grupo.nombre}
+                  </p>
+                </div>
+                {/* Tags — dense rows */}
+                <div className="flex flex-wrap gap-x-1 gap-y-0 px-2 pb-0.5">
+                  {grupo.etiquetas.map((e) => {
+                    const done = isAlreadyAssigned(e.id);
+                    return (
+                      <div
+                        key={e.id}
+                        draggable={!done}
+                        onDragStart={(ev) => {
+                          ev.dataTransfer.setData("text/plain", makeDragData(e));
+                          ev.dataTransfer.effectAllowed = "copy";
+                        }}
+                        onClick={() => handlePaletteClick(e)}
+                        className={`flex items-center gap-1 py-[2px] text-[10px] transition-colors ${
+                          done
+                            ? "opacity-25 cursor-default"
+                            : "cursor-grab hover:text-zinc-200 active:cursor-grabbing"
+                        }`}
+                      >
+                        <span
+                          className="h-1.5 w-1.5 rounded-full shrink-0"
+                          style={{ backgroundColor: e.color }}
+                        />
+                        <span className={`truncate ${done ? "text-zinc-800 line-through" : "text-zinc-500"}`}>
+                          {e.nombre}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      </>
+      )}
+
+    </div>
+  );
+}
+
+// ─── FolderTreeView — renderiza el arbol recursivo ─────────────────────────
+
+function FolderTreeView({
+  node,
+  depth,
+  accentColor,
+  isLast = false,
+}: {
+  node: DriveFolderNode;
+  depth: number;
+  accentColor: string;
+  isLast?: boolean;
+}) {
+  const isPlaceholder = node.type === "placeholder";
+  const isYear = node.type === "year";
+  const connector = depth === 0 ? "" : isLast ? "└─ " : "├─ ";
+  return (
+    <div style={{ paddingLeft: depth > 0 ? 14 : 0 }}>
+      <div
+        className={`flex items-center gap-1 py-[2px] ${
+          isYear ? "rounded-md border border-dashed border-blue-500/20 bg-blue-500/5 px-1.5 my-0.5" : ""
+        }`}
+      >
+        {depth > 0 && (
+          <span className="text-zinc-700 text-[10px] font-mono select-none shrink-0 w-[20px]">
+            {connector}
+          </span>
+        )}
+        {isYear ? (
+          <CalendarDays className="h-3 w-3 shrink-0 text-blue-400" />
+        ) : isPlaceholder ? (
+          <Folder className="h-3 w-3 text-zinc-700 shrink-0" />
+        ) : (
+          <Folder
+            className="h-3 w-3 shrink-0"
+            style={{ color: depth <= 1 ? accentColor : depth === 2 ? `${accentColor}90` : "#f59e0b" }}
+          />
+        )}
+        <span
+          className={`text-[11px] ${
+            isYear
+              ? "font-medium text-blue-400 italic"
+              : isPlaceholder
+              ? "text-zinc-600 italic"
+              : depth === 0
+              ? "font-semibold text-zinc-300"
+              : depth <= 2
+              ? "font-medium text-zinc-400"
+              : "text-zinc-400"
+          }`}
+        >
+          {isYear ? `📅 ${node.name}` : node.name}
+        </span>
+      </div>
+      {node.children.map((child, i) => (
+        <FolderTreeView
+          key={`${child.name}-${i}`}
+          node={child}
+          depth={depth + 1}
+          accentColor={accentColor}
+          isLast={i === node.children.length - 1}
+        />
+      ))}
+    </div>
+  );
+}

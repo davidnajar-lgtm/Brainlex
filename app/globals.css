@@ -122,6 +122,20 @@ html.light {
   --badge-cuarentena-bg:   oklch(26.6% 0.079 36);    /* orange-950 */
   --badge-cuarentena-text: oklch(78.5% 0.162 60);    /* orange-300 */
   --badge-cuarentena-ring: oklch(55.3% 0.195 38);    /* orange-700 */
+
+  /* Alerta de Error — Red (feedback de validación, errores de formulario) */
+  --alert-error-bg:        oklch(15.3% 0.046 15 / 0.35); /* red-950/35 */
+  --alert-error-border:    oklch(27.6% 0.085 15 / 0.50); /* red-900/50 */
+  --alert-error-text:      oklch(77.3% 0.148 13);        /* red-300    */
+  --alert-error-icon:      oklch(67.3% 0.203 27);        /* red-400    */
+
+  /* Alerta de Aviso — Amber (modo edición, advertencias no bloqueantes) */
+  --alert-warning-bg:          oklch(27.2% 0.064 66 / 0.12); /* amber-950/12 */
+  --alert-warning-border:      oklch(62.0% 0.150 70 / 0.40); /* amber-500/40 */
+  --alert-warning-text:        oklch(86.3% 0.127 80);        /* amber-300    */
+  --alert-warning-text-muted:  oklch(77.9% 0.168 65 / 0.80); /* amber-400/80 */
+  --alert-warning-icon:        oklch(77.9% 0.168 65);        /* amber-400    */
+  --alert-warning-frame:       oklch(62.0% 0.150 70 / 0.60); /* amber-500/60 */
 }
 
 html.light {
@@ -149,6 +163,20 @@ html.light {
   --badge-cuarentena-bg:   oklch(98.0% 0.016 74);    /* orange-50  */
   --badge-cuarentena-text: oklch(43.5% 0.167 38);    /* orange-800 */
   --badge-cuarentena-ring: oklch(75.7% 0.183 56);    /* orange-400 */
+
+  /* Alerta de Error — Red claro */
+  --alert-error-bg:        oklch(99.1% 0.013 17);    /* red-50     */
+  --alert-error-border:    oklch(89.2% 0.062 18);    /* red-200    */
+  --alert-error-text:      oklch(39.6% 0.162 25);    /* red-700    */
+  --alert-error-icon:      oklch(52.8% 0.217 27);    /* red-600    */
+
+  /* Alerta de Aviso — Amber claro */
+  --alert-warning-bg:          oklch(98.7% 0.022 91);         /* amber-50     */
+  --alert-warning-border:      oklch(76.9% 0.168 71 / 0.70);  /* amber-400/70 */
+  --alert-warning-text:        oklch(46.5% 0.157 49);         /* amber-800    */
+  --alert-warning-text-muted:  oklch(52.2% 0.136 56);         /* amber-700    */
+  --alert-warning-icon:        oklch(52.2% 0.136 56);         /* amber-700    */
+  --alert-warning-frame:       oklch(62.0% 0.150 70 / 0.70);  /* amber-500/70 */
 }
 
 /* ── Registro Tailwind v4 ─────────────────────────────────────────────────── */
@@ -211,6 +239,15 @@ gmp-place-autocomplete::part(input) {
 
 gmp-place-autocomplete::part(input)::placeholder {
   color: var(--content-muted) !important;
+}
+
+/* ── Animations ──────────────────────────────────────────────────────────── */
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slide-up 0.25s ease-out;
 }
 
 /* ── Print ────────────────────────────────────────────────────────────────── */

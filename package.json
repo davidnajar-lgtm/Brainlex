@@ -9,7 +9,11 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "clean": "taskkill /F /IM node.exe 2>nul & rmdir /S /Q .next 2>nul & echo Listo."
+    "clean": "taskkill /F /IM node.exe 2>nul & rmdir /S /Q .next 2>nul & echo Listo.",
+    "db:seed": "tsx prisma/seed.ts"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@googlemaps/js-api-loader": "^2.0.2",

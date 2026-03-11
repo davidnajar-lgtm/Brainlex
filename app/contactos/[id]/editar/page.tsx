@@ -25,14 +25,26 @@ export default async function EditarContactoPage({
   const contacto = result.data;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 rounded-2xl border-2 border-amber-500/60 p-6 shadow-[0_0_0_4px_rgba(245,158,11,0.08)]">
+    <div
+      className="mx-auto max-w-2xl space-y-6 rounded-2xl border-2 p-6"
+      style={{
+        borderColor: "var(--alert-warning-frame)",
+        boxShadow:   "0 0 0 4px color-mix(in oklch, var(--alert-warning-frame) 15%, transparent)",
+      }}
+    >
 
       {/* ── Banner Modo Edición Inequívoco (Micro-Spec 2.3) ── */}
-      <div className="flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2.5">
-        <PencilLine className="h-4 w-4 shrink-0 text-amber-400" />
-        <p className="text-xs font-semibold text-amber-300">
+      <div
+        className="flex items-center gap-2 rounded-lg border px-4 py-2.5"
+        style={{
+          backgroundColor: "var(--alert-warning-bg)",
+          borderColor:     "var(--alert-warning-border)",
+        }}
+      >
+        <PencilLine className="h-4 w-4 shrink-0" style={{ color: "var(--alert-warning-icon)" }} />
+        <p className="text-xs font-semibold" style={{ color: "var(--alert-warning-text)" }}>
           MODO EDICIÓN ACTIVO —{" "}
-          <span className="font-normal text-amber-400/80">
+          <span className="font-normal" style={{ color: "var(--alert-warning-text-muted)" }}>
             Los cambios no se guardarán hasta confirmar
           </span>
         </p>

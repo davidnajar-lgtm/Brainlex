@@ -60,14 +60,19 @@ type GetContactoResult =
 // ─── Helper: mensaje legible para violaciones de unicidad (P2002) ─────────────
 
 function p2002Message(target: unknown): string {
-  const fields = Array.isArray(target) ? (target as string[]) : [];
-  if (fields.includes("email_principal")) {
-    return "Ya existe un contacto registrado con este email.";
-  }
-  if (fields.includes("fiscal_id") || fields.includes("fiscal_id_tipo")) {
+  // Prisma 7 + driver adapter devuelve target como string con el nombre del constraint
+  // (ej: "contactos_fiscal_id_fiscal_id_tipo_key"). Versiones anteriores devolvían string[].
+  // email_principal ya NO tiene @unique — el único constraint que puede disparar P2002 aquí
+  // es el compound @@unique([fiscal_id, fiscal_id_tipo]).
+  const haystack = Array.isArray(target)
+    ? (target as string[]).join(" ")
+    : typeof target === "string"
+    ? target
+    : "";
+  if (haystack.includes("fiscal_id")) {
     return "Ya existe un contacto registrado con este identificador fiscal.";
   }
-  return "Ya existe un contacto con estos datos. Comprueba el email o el identificador fiscal.";
+  return "Ya existe un contacto con estos datos. Comprueba el identificador fiscal.";
 }
 
 // ─── Helper: extrae fieldErrors del resultado Zod ────────────────────────────
@@ -673,16 +678,14 @@ export async function toggleIsActive(id: string): Promise<ToggleIsActiveResult> 
 // ─── toggleEsCliente ──────────────────────────────────────────────────────────
 
 export type ToggleEsClienteResult =
-  | { ok: true; es_cliente: boolean }
+  | { ok: true; es_cliente: boolean; es_precliente: boolean }
   | { ok: false; error: string };
 
 /**
  * Alterna el atributo comercial es_cliente.
  *
- * FILOSOFÍA DE DATOS: es_cliente es un ATRIBUTO ADICIONAL, no un tipo excluyente.
- * Un contacto puede ser Cliente y Pre-cliente simultáneamente (ej: cliente de
- * contabilidad y pre-cliente de una herencia). Solo es_facturadora mantiene
- * veto de exclusividad por seguridad contable.
+ * EXCLUSIVIDAD: Cliente y Pre-cliente son mutuamente excluyentes.
+ * Activar Cliente desactiva Pre-cliente automáticamente.
  */
 export async function toggleEsCliente(id: string): Promise<ToggleEsClienteResult> {
   try {
@@ -692,14 +695,20 @@ export async function toggleEsCliente(id: string): Promise<ToggleEsClienteResult
     });
     if (!current) return { ok: false, error: `Contacto no encontrado (${id}).` };
 
+    const newEsCliente = !current.es_cliente;
+
     const updated = await prisma.contacto.update({
       where:  { id },
-      data:   { es_cliente: !current.es_cliente },
-      select: { es_cliente: true },
+      data: {
+        es_cliente: newEsCliente,
+        // Exclusividad: activar Cliente desactiva Pre-cliente
+        ...(newEsCliente && { es_precliente: false }),
+      },
+      select: { es_cliente: true, es_precliente: true },
     });
 
     revalidatePath("/contactos", "layout");
-    return { ok: true, es_cliente: updated.es_cliente };
+    return { ok: true, es_cliente: updated.es_cliente, es_precliente: updated.es_precliente };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error al cambiar rol de cliente.";
     console.error("[toggleEsCliente]", message);
@@ -710,15 +719,14 @@ export async function toggleEsCliente(id: string): Promise<ToggleEsClienteResult
 // ─── toggleEsPrecliente ───────────────────────────────────────────────────────
 
 export type ToggleEsPreClienteResult =
-  | { ok: true; es_precliente: boolean }
+  | { ok: true; es_precliente: boolean; es_cliente: boolean }
   | { ok: false; error: string };
 
 /**
  * Alterna el atributo comercial es_precliente.
  *
- * FILOSOFÍA DE DATOS: es_precliente es un ATRIBUTO ADICIONAL, no un tipo excluyente.
- * Puede coexistir con es_cliente (ej: cliente de contabilidad y pre-cliente de herencia).
- * Solo es_facturadora mantiene veto de exclusividad por seguridad contable.
+ * EXCLUSIVIDAD: Cliente y Pre-cliente son mutuamente excluyentes.
+ * Activar Pre-cliente desactiva Cliente automáticamente.
  */
 export async function toggleEsPrecliente(id: string): Promise<ToggleEsPreClienteResult> {
   try {
@@ -728,14 +736,20 @@ export async function toggleEsPrecliente(id: string): Promise<ToggleEsPreCliente
     });
     if (!current) return { ok: false, error: `Contacto no encontrado (${id}).` };
 
+    const newEsPrecliente = !current.es_precliente;
+
     const updated = await prisma.contacto.update({
       where:  { id },
-      data:   { es_precliente: !current.es_precliente },
-      select: { es_precliente: true },
+      data: {
+        es_precliente: newEsPrecliente,
+        // Exclusividad: activar Pre-cliente desactiva Cliente
+        ...(newEsPrecliente && { es_cliente: false }),
+      },
+      select: { es_precliente: true, es_cliente: true },
     });
 
     revalidatePath("/contactos", "layout");
-    return { ok: true, es_precliente: updated.es_precliente };
+    return { ok: true, es_precliente: updated.es_precliente, es_cliente: updated.es_cliente };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error al cambiar estado pre-cliente.";
     console.error("[toggleEsPrecliente]", message);
