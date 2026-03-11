@@ -490,6 +490,40 @@ function CategoriaCard({
   } | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  // ── Drag reorder state (visual only — orden local) ─────────────────────
+  const [dragId, setDragId]         = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [localOrder, setLocalOrder] = useState<string[]>(() => cat.etiquetas.map((e) => e.id));
+
+  // Sync localOrder when etiquetas change externally
+  const etiquetaIds = cat.etiquetas.map((e) => e.id).join(",");
+  if (localOrder.join(",") !== etiquetaIds && !dragId) {
+    // Only sync if not dragging
+    setLocalOrder(cat.etiquetas.map((e) => e.id));
+  }
+
+  function getOrderedEtiquetas() {
+    const map = new Map(cat.etiquetas.map((e) => [e.id, e]));
+    return localOrder.map((id) => map.get(id)).filter(Boolean) as typeof cat.etiquetas;
+  }
+
+  function handleDragStart(id: string) { setDragId(id); }
+  function handleDragOver(id: string) {
+    if (!dragId || dragId === id) return;
+    setDragOverId(id);
+    // Reorder
+    setLocalOrder((prev) => {
+      const from = prev.indexOf(dragId);
+      const to = prev.indexOf(id);
+      if (from === -1 || to === -1) return prev;
+      const next = [...prev];
+      next.splice(from, 1);
+      next.splice(to, 0, dragId);
+      return next;
+    });
+  }
+  function handleDragEnd() { setDragId(null); setDragOverId(null); }
+
   function startEdit(e: { id: string; nombre: string; color: string; parent_id?: string | null; es_expediente?: boolean }) {
     setEditingId(e.id);
     setEditName(e.nombre);
@@ -696,11 +730,21 @@ function CategoriaCard({
     return (
       <span
         key={e.id}
-        className="group inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset"
+        className={`group inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition-transform ${
+          dragId === e.id ? "opacity-50 scale-95" : ""
+        }`}
         style={{ backgroundColor: `${e.color}22`, color: e.color }}
+        onDragOver={(ev) => { ev.preventDefault(); handleDragOver(e.id); }}
       >
         {catTipo === "CONSTRUCTOR" && (
-          <GripVertical className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-50 cursor-grab text-zinc-500 -ml-0.5" />
+          <span
+            draggable
+            onDragStart={(ev) => { ev.dataTransfer.effectAllowed = "move"; handleDragStart(e.id); }}
+            onDragEnd={handleDragEnd}
+            className="opacity-0 group-hover:opacity-50 cursor-grab active:cursor-grabbing -ml-0.5"
+          >
+            <GripVertical className="h-3 w-3 shrink-0 text-zinc-500" />
+          </span>
         )}
         <ColorDot color={e.color} />
         {e.nombre}
@@ -852,7 +896,7 @@ function CategoriaCard({
           {/* Vista plana para categorías que no son Servicio, o Servicio sin padres asignados */}
           {(!isServicio || !cat.etiquetas.some((e) => e.parent_id)) && (
           <div className="flex flex-wrap gap-2">
-            {cat.etiquetas.map((e) => renderEtiquetaTag(e))}
+            {getOrderedEtiquetas().map((e) => renderEtiquetaTag(e))}
           </div>
           )}
 

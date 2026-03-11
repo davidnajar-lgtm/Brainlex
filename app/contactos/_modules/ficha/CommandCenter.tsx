@@ -19,7 +19,7 @@
 // ============================================================================
 
 import { useState, useEffect, useTransition, useCallback, createContext, useContext, type ReactNode, type DragEvent } from "react";
-import { Folder, Tag, X, Pencil, Zap, ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
+import { Folder, Tag, X, Pencil, Zap, ChevronLeft, ChevronRight, CalendarDays, FilePlus2, FileText } from "lucide-react";
 import Link from "next/link";
 import { useTenant } from "@/lib/context/TenantContext";
 import { useToast } from "@/components/ui/Toast";
@@ -48,14 +48,15 @@ const ORDEN_VISUAL: Record<string, number> = {
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 interface EtiquetaOption {
-  id:         string;
-  nombre:     string;
-  color:      string;
-  es_sistema: boolean;
-  scope:      string;
-  parent_id?: string | null;
-  parent?:    { id: string; nombre: string } | null;
-  categoria:  { id: string; nombre: string };
+  id:              string;
+  nombre:          string;
+  color:           string;
+  es_sistema:      boolean;
+  scope:           string;
+  parent_id?:      string | null;
+  parent?:         { id: string; nombre: string } | null;
+  es_expediente?:  boolean;
+  categoria:       { id: string; nombre: string };
 }
 
 interface CategoriaGroup {
@@ -84,6 +85,7 @@ interface DropPayload {
   categoriaTipo:   "CONSTRUCTOR" | "ATRIBUTO";
   parentId?:       string | null;
   parentNombre?:   string | null;
+  esExpediente?:   boolean;
 }
 
 interface CommandCenterProps {
@@ -185,6 +187,14 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
   const [isOverCarpetas, setIsOverCarpetas]       = useState(false);
   const [classificationOpen, setClassificationOpen] = useState(false);
 
+  // ── Estado del modal de Nuevo Expediente ──────────────────────────────────
+  const [expedienteModal, setExpedienteModal] = useState<{
+    payload: DropPayload;
+  } | null>(null);
+  const [expNombre, setExpNombre]     = useState("");
+  const [expCodigo, setExpCodigo]     = useState("");
+  const [expSaving, setExpSaving]     = useState(false);
+
   useEffect(() => {
     startTransition(async () => {
       const [gRes, aRes] = await Promise.all([
@@ -213,6 +223,14 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
   async function handleAssign(payload: DropPayload) {
     if (isAlreadyAssigned(payload.id)) {
       toast({ message: `"${payload.nombre}" ya asignada`, variant: "warning", icon: "tag" });
+      return;
+    }
+
+    // ── Interceptar etiquetas de tipo Expediente → abrir modal ──────────────
+    if (payload.esExpediente) {
+      setExpedienteModal({ payload });
+      setExpNombre("");
+      setExpCodigo(`EXP-${Date.now().toString(36).toUpperCase().slice(-6)}`);
       return;
     }
 
@@ -288,6 +306,7 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
       categoriaTipo: getCategoriaTipo(e.categoria.nombre),
       parentId: e.parent_id ?? null,
       parentNombre: e.parent?.nombre ?? null,
+      esExpediente: e.es_expediente ?? false,
     });
   }
 
@@ -298,6 +317,7 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
       categoriaTipo: getCategoriaTipo(e.categoria.nombre),
       parentId: e.parent_id ?? null,
       parentNombre: e.parent?.nombre ?? null,
+      esExpediente: e.es_expediente ?? false,
     } satisfies DropPayload);
   }
 
@@ -335,6 +355,55 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
         } catch { /* ignore */ }
       },
     };
+  }
+
+  /** Completa la asignación de etiqueta de tipo Expediente tras rellenar el modal. */
+  async function completeExpedienteAssign() {
+    if (!expedienteModal || !expNombre.trim() || !expCodigo.trim()) return;
+    setExpSaving(true);
+    try {
+      // Asignar la etiqueta normalmente (sin interceptar, pues ya hemos recogido datos)
+      const payload = { ...expedienteModal.payload, esExpediente: false };
+      // Reutilizamos la lógica de assign pero bypass el interceptor
+      await handleAssignDirect(payload);
+      toast({
+        message: `Expediente "${expNombre.trim()}" (${expCodigo.trim()}) creado para "${payload.nombre}"`,
+        variant: "success",
+        icon: "folder",
+      });
+    } finally {
+      setExpSaving(false);
+      setExpedienteModal(null);
+    }
+  }
+
+  /** Asignación directa sin interceptar es_expediente (usado post-modal). */
+  async function handleAssignDirect(payload: DropPayload) {
+    // Auto-asignación de Departamento padre
+    if (payload.categoriaNombre === "Servicio" && payload.parentId && !isAlreadyAssigned(payload.parentId)) {
+      const parentResult = await asignarEtiqueta(payload.parentId, contactoId, "CONTACTO");
+      if (parentResult.ok) {
+        const parentTag: AssignedTag = {
+          id: `opt-${payload.parentId}`, etiqueta_id: payload.parentId,
+          etiqueta: { id: payload.parentId, nombre: payload.parentNombre ?? "Departamento", color: "#f97316", blueprint: null, categoria: { id: "Departamento", nombre: "Departamento" } },
+        };
+        setAssigned((prev) => [...prev, parentTag]);
+        toast({ message: `Departamento "${payload.parentNombre}" asignado automáticamente`, variant: "info", icon: "folder" });
+      }
+    }
+    const result = await asignarEtiqueta(payload.id, contactoId, "CONTACTO");
+    if (!result.ok) { toast({ message: result.error, variant: "error" }); return; }
+    const optimisticTag: AssignedTag = {
+      id: `opt-${payload.id}`, etiqueta_id: payload.id,
+      etiqueta: { id: payload.id, nombre: payload.nombre, color: payload.color, blueprint: null, categoria: { id: payload.categoriaNombre, nombre: payload.categoriaNombre } },
+    };
+    setAssigned((prev) => [...prev, optimisticTag]);
+    if (payload.categoriaTipo === "CONSTRUCTOR") {
+      const dr = await createDriveFolder({ contactoId, contactoName, categoriaNombre: payload.categoriaNombre, etiquetaNombre: payload.nombre });
+      if (dr.success) toast({ message: `[SIMULACION] Carpeta: ${dr.path}`, variant: "info", icon: "folder" });
+    } else {
+      toast({ message: `"${payload.nombre}" guardado`, variant: "success", icon: "tag" });
+    }
   }
 
   const dropAtributos = makeDropHandlers("ATRIBUTO", setIsOverAtributos);
@@ -720,6 +789,111 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
       </>
       )}
 
+      {/* ══════════════════════════════════════════════════════════════════════
+          MODAL — Nuevo Expediente (se lanza al asignar etiqueta es_expediente)
+          ══════════════════════════════════════════════════════════════════ */}
+      {expedienteModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => { if (!expSaving) setExpedienteModal(null); }}
+          role="dialog"
+          aria-modal
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-cyan-500/15">
+                <Folder className="h-4 w-4 text-cyan-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-100">Nuevo Expediente</h3>
+                <p className="text-[10px] text-zinc-500">
+                  Servicio: <span className="font-medium" style={{ color: expedienteModal.payload.color }}>{expedienteModal.payload.nombre}</span>
+                </p>
+              </div>
+              <button
+                onClick={() => setExpedienteModal(null)}
+                disabled={expSaving}
+                className="ml-auto text-zinc-600 hover:text-zinc-300 disabled:opacity-50"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">
+                  Nombre del expediente
+                </label>
+                <input
+                  value={expNombre}
+                  onChange={(ev) => setExpNombre(ev.target.value)}
+                  placeholder="Ej: Herencia Garcia-Lopez 2026"
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-100 placeholder-zinc-600 outline-none focus:border-cyan-500/60"
+                  autoFocus
+                  onKeyDown={(ev) => { if (ev.key === "Enter" && expNombre.trim()) completeExpedienteAssign(); if (ev.key === "Escape") setExpedienteModal(null); }}
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">
+                  Codigo unico (ID de carpeta)
+                </label>
+                <input
+                  value={expCodigo}
+                  onChange={(ev) => setExpCodigo(ev.target.value)}
+                  placeholder="EXP-XXXXXX"
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-100 font-mono placeholder-zinc-600 outline-none focus:border-cyan-500/60"
+                />
+                <p className="mt-1 text-[9px] text-zinc-600">
+                  Se usara como nombre de la carpeta raiz en Drive
+                </p>
+              </div>
+            </div>
+
+            {/* Preview */}
+            <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2">
+              <p className="text-[9px] font-semibold uppercase tracking-wider text-zinc-600 mb-1">Vista previa de carpeta</p>
+              <div className="text-[10px] text-zinc-500 font-mono space-y-0.5">
+                <div className="flex items-center gap-1">
+                  <Folder className="h-2.5 w-2.5 text-amber-500" />
+                  <span>{contactoName}/</span>
+                </div>
+                <div className="flex items-center gap-1 pl-3">
+                  <Folder className="h-2.5 w-2.5 text-cyan-500" />
+                  <span className="text-cyan-400">{expCodigo.trim() || "EXP-..."} — {expNombre.trim() || "..."}/</span>
+                </div>
+                <div className="flex items-center gap-1 pl-6">
+                  <Folder className="h-2.5 w-2.5 text-zinc-700" />
+                  <span className="text-zinc-600 italic">subcarpetas del servicio...</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                onClick={() => setExpedienteModal(null)}
+                disabled={expSaving}
+                className="rounded-lg border border-zinc-700 px-4 py-2 text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={completeExpedienteAssign}
+                disabled={!expNombre.trim() || !expCodigo.trim() || expSaving}
+                className="rounded-lg bg-cyan-600 px-4 py-2 text-xs font-semibold text-white hover:bg-cyan-500 disabled:opacity-50"
+              >
+                {expSaving ? "Creando..." : "Crear expediente y asignar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -737,17 +911,37 @@ function FolderTreeView({
   accentColor: string;
   isLast?: boolean;
 }) {
+  const [simDocs, setSimDocs] = useState<string[]>([]);
   const isPlaceholder = node.type === "placeholder";
   const isYear = node.type === "year";
-  // Ghost mode: carpetas de nivel 3+ sin contenido real se muestran atenuadas
-  const isGhost = isPlaceholder && node.children.length === 0 && depth >= 3;
+  // Ghost mode: carpetas de nivel 3+ sin contenido real y sin docs simulados
+  const hasContent = simDocs.length > 0 || node.children.length > 0;
+  const isGhost = isPlaceholder && !hasContent && depth >= 3;
   const connector = depth === 0 ? "" : isLast ? "└─ " : "├─ ";
+
+  function simulateDocument() {
+    const docNames = [
+      "Contrato_firmado.pdf",
+      "Factura_2026-001.pdf",
+      "Presupuesto_v2.docx",
+      "Nota_informativa.pdf",
+      "Certificado_digital.p12",
+      "Escritura_publica.pdf",
+      "Poder_notarial.pdf",
+      "Acta_reunion.docx",
+    ];
+    const available = docNames.filter((d) => !simDocs.includes(d));
+    if (available.length === 0) return;
+    const pick = available[Math.floor(Math.random() * available.length)];
+    setSimDocs((prev) => [...prev, pick].sort((a, b) => a.localeCompare(b, "es", { numeric: true })));
+  }
+
   return (
     <div style={{ paddingLeft: depth > 0 ? 14 : 0 }}>
       <div
-        className={`flex items-center gap-1 py-[2px] ${
+        className={`group/folder flex items-center gap-1 py-[2px] ${
           isYear ? "rounded-md border border-dashed border-blue-500/20 bg-blue-500/5 px-1.5 my-0.5" : ""
-        } ${isGhost ? "opacity-40" : ""}`}
+        } ${isGhost ? "opacity-40 hover:opacity-70 transition-opacity" : ""}`}
       >
         {depth > 0 && (
           <span className={`text-[10px] font-mono select-none shrink-0 w-[20px] ${isGhost ? "text-zinc-800" : "text-zinc-700"}`}>
@@ -757,7 +951,7 @@ function FolderTreeView({
         {isYear ? (
           <CalendarDays className="h-3 w-3 shrink-0 text-blue-400" />
         ) : isPlaceholder ? (
-          <Folder className={`h-3 w-3 shrink-0 ${isGhost ? "text-zinc-800" : "text-zinc-700"}`} />
+          <Folder className={`h-3 w-3 shrink-0 ${isGhost ? "text-zinc-800" : simDocs.length > 0 ? "text-amber-500" : "text-zinc-700"}`} />
         ) : (
           <Folder
             className="h-3 w-3 shrink-0"
@@ -770,6 +964,8 @@ function FolderTreeView({
               ? "font-medium text-blue-400 italic"
               : isGhost
               ? "text-zinc-700 italic"
+              : isPlaceholder && simDocs.length > 0
+              ? "text-zinc-300 font-medium"
               : isPlaceholder
               ? "text-zinc-600 italic"
               : depth === 0
@@ -781,8 +977,34 @@ function FolderTreeView({
         >
           {isYear ? `📅 ${node.name}` : node.name}
           {isGhost && <span className="ml-1 text-[8px] text-zinc-800 font-normal">(vacía)</span>}
+          {simDocs.length > 0 && (
+            <span className="ml-1 text-[8px] text-emerald-500/70 font-normal">
+              ({simDocs.length} doc{simDocs.length > 1 ? "s" : ""})
+            </span>
+          )}
         </span>
+        {/* Botón simular documento — solo en carpetas de nivel 3+ */}
+        {isPlaceholder && depth >= 3 && (
+          <button
+            onClick={simulateDocument}
+            className="ml-1 opacity-0 group-hover/folder:opacity-70 hover:!opacity-100 transition-opacity text-emerald-500"
+            title="Simular entrada de documento"
+          >
+            <FilePlus2 className="h-3 w-3" />
+          </button>
+        )}
       </div>
+      {/* Documentos simulados */}
+      {simDocs.map((doc) => (
+        <div key={doc} style={{ paddingLeft: 14 }} className="flex items-center gap-1 py-[1px] animate-in fade-in slide-in-from-left-2 duration-300">
+          <span className="text-[10px] font-mono select-none shrink-0 w-[20px] text-zinc-800">
+            ├─
+          </span>
+          <FileText className="h-2.5 w-2.5 shrink-0 text-emerald-500/60" />
+          <span className="text-[10px] text-emerald-400/80">{doc}</span>
+          <span className="text-[7px] text-zinc-700 uppercase font-bold">sim</span>
+        </div>
+      ))}
       {node.children.map((child, i) => (
         <FolderTreeView
           key={`${child.name}-${i}`}
