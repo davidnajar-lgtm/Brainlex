@@ -16,7 +16,7 @@
 // ============================================================================
 
 import { useState, useTransition } from "react";
-import { Plus, Tag, Folder, ChevronDown, ChevronRight, Check, X, Pencil, Lock, Trash2, FolderTree, Globe, Building2, AlertTriangle, ShieldAlert } from "lucide-react";
+import { Plus, Tag, Folder, ChevronDown, ChevronRight, Check, X, Pencil, Lock, Trash2, FolderTree, Globe, Building2, AlertTriangle, ShieldAlert, Eye, EyeOff, RotateCcw } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   createEtiqueta,
@@ -26,6 +26,8 @@ import {
   updateBlueprint,
   updateEtiquetaScope,
   liberateContentTags,
+  getCategoriasWithArchived,
+  restoreEtiqueta,
 } from "@/lib/modules/entidades/actions/etiquetas.actions";
 import type { CategoriaConEtiquetas } from "@/lib/modules/entidades/repositories/etiqueta.repository";
 import type { Etiqueta } from "@prisma/client";
@@ -101,6 +103,8 @@ export function TaxonomiaClient({ initialCategorias }: TaxonomiaClientProps) {
   const [expandedIds,  setExpandedIds]  = useState<Set<string>>(new Set());
   const [error,        setError]        = useState<string | null>(null);
   const [liberated,    setLiberated]    = useState(false);
+  const [ghostMode,    setGhostMode]    = useState(false);
+  const [ghostLoading, setGhostLoading] = useState(false);
 
   // Detectar si hay etiquetas con es_sistema=true en contenido
   const hasSistemaContent = categorias.some((c) => c.etiquetas.some((e) => e.es_sistema));
@@ -167,6 +171,50 @@ export function TaxonomiaClient({ initialCategorias }: TaxonomiaClientProps) {
         </button>
       )}
 
+      {/* Toggle ghost mode — muestra etiquetas archivadas con estilo fantasma */}
+      <button
+        onClick={async () => {
+          if (ghostMode) {
+            // Desactivar: recargar solo activas
+            setGhostMode(false);
+            setCategorias(
+              initialCategorias
+                .filter((c) => CAJONES_VALIDOS.has(c.nombre))
+                .sort((a, b) => (ORDEN_VISUAL[a.nombre] ?? 99) - (ORDEN_VISUAL[b.nombre] ?? 99))
+            );
+            return;
+          }
+          setGhostLoading(true);
+          const res = await getCategoriasWithArchived();
+          setGhostLoading(false);
+          if (!res.ok) { setError(res.error); return; }
+          setCategorias(
+            res.data
+              .filter((c) => CAJONES_VALIDOS.has(c.nombre))
+              .sort((a, b) => (ORDEN_VISUAL[a.nombre] ?? 99) - (ORDEN_VISUAL[b.nombre] ?? 99))
+          );
+          setGhostMode(true);
+        }}
+        disabled={ghostLoading}
+        className={`flex items-center gap-2 rounded-lg border px-4 py-2.5 text-xs transition-colors w-full text-left ${
+          ghostMode
+            ? "border-violet-500/30 bg-violet-500/5 text-violet-400 hover:bg-violet-500/10"
+            : "border-zinc-800 bg-zinc-900/40 text-zinc-500 hover:text-zinc-300"
+        } disabled:opacity-50`}
+      >
+        {ghostMode ? <EyeOff className="h-3.5 w-3.5 shrink-0" /> : <Eye className="h-3.5 w-3.5 shrink-0" />}
+        <span className="flex-1">
+          {ghostMode
+            ? "Modo fantasma activo — mostrando etiquetas archivadas. Pulsa para ocultar."
+            : "Mostrar etiquetas archivadas (modo fantasma)"}
+        </span>
+        {ghostLoading && (
+          <span className="shrink-0 rounded bg-zinc-700 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider animate-pulse">
+            Cargando...
+          </span>
+        )}
+      </button>
+
       {categorias.map((cat, idx) => {
         const catTipo = getCategoriaTipo(cat.nombre);
         const showSeparator = idx > 0 && (ORDEN_VISUAL[categorias[idx - 1]?.nombre] ?? 0) <= 2 && (ORDEN_VISUAL[cat.nombre] ?? 0) >= 3;
@@ -184,6 +232,7 @@ export function TaxonomiaClient({ initialCategorias }: TaxonomiaClientProps) {
             catTipo={catTipo}
             expanded={expandedIds.has(cat.id)}
             onToggle={() => toggleExpand(cat.id)}
+            ghostMode={ghostMode}
             departamentos={
               cat.nombre === "Servicio"
                 ? categorias.find((c) => c.nombre === "Departamento")?.etiquetas ?? []
@@ -401,6 +450,7 @@ function CategoriaCard({
   catTipo,
   expanded,
   onToggle,
+  ghostMode,
   departamentos,
   onEtiquetaCreated,
   onEtiquetaDeleted,
@@ -411,6 +461,7 @@ function CategoriaCard({
   catTipo: "CONSTRUCTOR" | "ATRIBUTO";
   expanded: boolean;
   onToggle: () => void;
+  ghostMode: boolean;
   departamentos: Etiqueta[];
   onEtiquetaCreated: (e: Etiqueta) => void;
   onEtiquetaDeleted: (id: string) => void;
@@ -422,10 +473,12 @@ function CategoriaCard({
   const [newName,         setNewName]         = useState("");
   const [newColor,        setNewColor]        = useState("#6b7280");
   const [newParentId,     setNewParentId]     = useState<string | null>(null);
+  const [newEsExpediente, setNewEsExpediente] = useState(false);
   const [editingId,       setEditingId]       = useState<string | null>(null);
   const [editName,        setEditName]        = useState("");
   const [editColor,       setEditColor]       = useState("#6b7280");
   const [editParentId,    setEditParentId]    = useState<string | null>(null);
+  const [editEsExpediente, setEditEsExpediente] = useState(false);
   const [blueprintEditId, setBlueprintEditId] = useState<string | null>(null);
   const [scopeEditId,     setScopeEditId]     = useState<string | null>(null);
   const [usageCounts,     setUsageCounts]     = useState<Record<string, number>>({});
@@ -437,11 +490,12 @@ function CategoriaCard({
   } | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  function startEdit(e: { id: string; nombre: string; color: string; parent_id?: string | null }) {
+  function startEdit(e: { id: string; nombre: string; color: string; parent_id?: string | null; es_expediente?: boolean }) {
     setEditingId(e.id);
     setEditName(e.nombre);
     setEditColor(e.color);
     setEditParentId(e.parent_id ?? null);
+    setEditEsExpediente(e.es_expediente ?? false);
   }
 
   function cancelEdit() {
@@ -449,6 +503,7 @@ function CategoriaCard({
     setEditName("");
     setEditColor("#6b7280");
     setEditParentId(null);
+    setEditEsExpediente(false);
   }
 
   function handleUpdateEtiqueta(id: string) {
@@ -472,10 +527,18 @@ function CategoriaCard({
           if (!parentRes.ok) { setError(parentRes.error); return; }
         }
       }
+      // Actualizar es_expediente si cambió
+      if (isServicio) {
+        const currentEtq = cat.etiquetas.find((e) => e.id === id);
+        if (currentEtq?.es_expediente !== editEsExpediente) {
+          const { updateEtiquetaExpediente } = await import("@/lib/modules/entidades/actions/etiquetas.actions");
+          await updateEtiquetaExpediente(id, editEsExpediente);
+        }
+      }
       onEtiquetaUpdated(id, {
         nombre: editName.trim(),
         color: editColor,
-        ...(isServicio ? { parent_id: editParentId } : {}),
+        ...(isServicio ? { parent_id: editParentId, es_expediente: editEsExpediente } : {}),
       });
       cancelEdit();
     });
@@ -492,6 +555,7 @@ function CategoriaCard({
     fd.set("color", newColor);
     fd.set("categoria_id", cat.id);
     if (newParentId) fd.set("parent_id", newParentId);
+    if (isServicio && newEsExpediente) fd.set("es_expediente", "true");
     startTransition(async () => {
       const res = await createEtiqueta(null, fd);
       if (!res.ok) { setError(res.error); return; }
@@ -499,12 +563,13 @@ function CategoriaCard({
         id: res.data.id, nombre: newName.trim(), color: newColor,
         categoria_id: cat.id, es_sistema: false, activo: true,
         scope: "GLOBAL" as const, blueprint: null,
-        parent_id: newParentId,
+        parent_id: newParentId, es_expediente: newEsExpediente,
         created_at: new Date(), updated_at: new Date(),
       });
       setNewName("");
       setNewColor("#6b7280");
       setNewParentId(null);
+      setNewEsExpediente(false);
       setShowNewEtiqueta(false);
     });
   }
@@ -561,6 +626,17 @@ function CategoriaCard({
               </select>
             </div>
           )}
+          {isServicio && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={editEsExpediente}
+                onChange={(ev) => setEditEsExpediente(ev.target.checked)}
+                className="h-3.5 w-3.5 rounded border-zinc-600 bg-zinc-800 text-amber-500 accent-amber-500"
+              />
+              <span className="text-[11px] text-zinc-400">Es de tipo Expediente</span>
+            </label>
+          )}
           <div className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800 px-2 py-1">
             <input type="color" value={editColor} onChange={(ev) => setEditColor(ev.target.value)}
               className="h-5 w-5 cursor-pointer rounded border-0 bg-transparent p-0 shrink-0" />
@@ -584,6 +660,39 @@ function CategoriaCard({
       ? departamentos.find((d) => d.id === e.parent_id)?.nombre
       : null;
 
+    const isArchived = !e.activo;
+
+    // ── Ghost tag: etiqueta archivada visible solo en ghost mode ──
+    if (isArchived && ghostMode) {
+      return (
+        <span
+          key={e.id}
+          className="group inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset opacity-40 hover:opacity-70 transition-opacity border-dashed"
+          style={{ backgroundColor: `${e.color}0a`, color: e.color, borderColor: `${e.color}30` }}
+        >
+          <ColorDot color={e.color} />
+          <span className="line-through">{e.nombre}</span>
+          <span className="rounded-sm bg-violet-500/15 px-1 py-[1px] text-[8px] font-bold uppercase tracking-wider text-violet-400">
+            archivada
+          </span>
+          <button
+            onClick={async () => {
+              const res = await restoreEtiqueta(e.id);
+              if (!res.ok) { setError(res.error); return; }
+              onEtiquetaUpdated(e.id, { activo: true });
+            }}
+            className="ml-0.5 opacity-0 group-hover:opacity-100 transition-opacity text-emerald-400 hover:text-emerald-300"
+            title={`Restaurar "${e.nombre}"`}
+          >
+            <RotateCcw className="h-2.5 w-2.5" />
+          </button>
+        </span>
+      );
+    }
+
+    // No mostrar archivadas fuera de ghost mode
+    if (isArchived) return null;
+
     return (
       <span
         key={e.id}
@@ -597,6 +706,12 @@ function CategoriaCard({
           <span className="inline-flex items-center gap-0.5 rounded-sm bg-amber-500/10 px-1 py-[1px] text-[8px] font-bold uppercase tracking-wider text-amber-500/70">
             <Folder className="h-2 w-2" />
             {parentName}
+          </span>
+        )}
+        {/* Expediente badge */}
+        {e.es_expediente && (
+          <span className="inline-flex items-center gap-0.5 rounded-sm bg-cyan-500/10 px-1 py-[1px] text-[8px] font-bold uppercase tracking-wider text-cyan-500/70">
+            EXP
           </span>
         )}
         {/* Scope badge — clickable para editar */}
@@ -665,7 +780,10 @@ function CategoriaCard({
           )}
           <span className="text-sm font-medium text-zinc-200">{cat.nombre}</span>
           <span className="rounded-full bg-zinc-700/60 px-2 py-0.5 text-[10px] text-zinc-500 tabular-nums">
-            {cat.etiquetas.length}
+            {cat.etiquetas.filter((e) => e.activo).length}
+            {ghostMode && cat.etiquetas.some((e) => !e.activo) && (
+              <span className="text-violet-400/70"> +{cat.etiquetas.filter((e) => !e.activo).length}</span>
+            )}
           </span>
           <span className={`rounded-sm px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
             catTipo === "CONSTRUCTOR"
@@ -784,6 +902,17 @@ function CategoriaCard({
                   </select>
                 </div>
               )}
+              {isServicio && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={newEsExpediente}
+                    onChange={(e) => setNewEsExpediente(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-zinc-600 bg-zinc-800 text-amber-500 accent-amber-500"
+                  />
+                  <span className="text-[11px] text-zinc-400">Es de tipo Expediente</span>
+                </label>
+              )}
               <div className="flex items-center gap-2">
                 <input
                   type="color"
@@ -797,14 +926,14 @@ function CategoriaCard({
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder={isServicio ? "Nombre del servicio" : "Nombre de la etiqueta"}
                   className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-600 outline-none focus:border-orange-500/60"
-                  onKeyDown={(e) => { if (e.key === "Enter") handleCreateEtiqueta(); if (e.key === "Escape") { setShowNewEtiqueta(false); setNewName(""); setNewParentId(null); } }}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleCreateEtiqueta(); if (e.key === "Escape") { setShowNewEtiqueta(false); setNewName(""); setNewParentId(null); setNewEsExpediente(false); } }}
                   autoFocus
                 />
                 <button onClick={handleCreateEtiqueta} disabled={!newName.trim() || (isServicio && !newParentId) || isPending}
                   className="rounded-lg bg-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-600 disabled:opacity-50">
                   <Check className="h-3 w-3" />
                 </button>
-                <button onClick={() => { setShowNewEtiqueta(false); setNewName(""); setNewParentId(null); }}
+                <button onClick={() => { setShowNewEtiqueta(false); setNewName(""); setNewParentId(null); setNewEsExpediente(false); }}
                   className="rounded-lg border border-zinc-700 px-2 py-1.5 text-xs text-zinc-500 hover:text-zinc-300">
                   <X className="h-3 w-3" />
                 </button>

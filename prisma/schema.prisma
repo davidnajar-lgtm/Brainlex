@@ -395,8 +395,9 @@ model Etiqueta {
   es_sistema   Boolean       @default(false)     /// true = predefinida, no eliminable
   activo       Boolean       @default(true)      /// false = archivada (soft-delete), oculta en catálogo pero preserva vínculos
   scope        EtiquetaScope @default(GLOBAL)    /// @Scope-Guard: visibilidad por tenant
-  blueprint    Json?                             /// Estructura de subcarpetas para etiquetas Constructor (Servicio/Departamento)
-  parent_id    String?                           /// Jerarquía: Servicio → Departamento padre (obligatorio para Servicio)
+  blueprint      Json?                             /// Estructura de subcarpetas para etiquetas Constructor (Servicio/Departamento)
+  parent_id      String?                           /// Jerarquía: Servicio → Departamento padre (obligatorio para Servicio)
+  es_expediente  Boolean       @default(false)     /// true = al asignar, abre modal de Nuevo Expediente
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

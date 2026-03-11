@@ -36,10 +36,11 @@ const CategoriaSchema = z.object({
 });
 
 const EtiquetaSchema = z.object({
-  nombre:       z.string().min(1).max(80),
-  color:        z.string().regex(/^#[0-9a-fA-F]{6}$/, "Color hex inválido").default("#6b7280"),
-  categoria_id: z.string().cuid(),
-  parent_id:    z.string().cuid().nullable().optional(),
+  nombre:        z.string().min(1).max(80),
+  color:         z.string().regex(/^#[0-9a-fA-F]{6}$/, "Color hex inválido").default("#6b7280"),
+  categoria_id:  z.string().cuid(),
+  parent_id:     z.string().cuid().nullable().optional(),
+  es_expediente: z.boolean().optional().default(false),
 });
 
 // ─── Tipos de retorno ─────────────────────────────────────────────────────────
@@ -132,19 +133,21 @@ export async function createEtiqueta(
   formData: FormData
 ): Promise<ActionResult<{ id: string }>> {
   const parsed = EtiquetaSchema.safeParse({
-    nombre:       formData.get("nombre"),
-    color:        formData.get("color") ?? "#6b7280",
-    categoria_id: formData.get("categoria_id"),
-    parent_id:    formData.get("parent_id") || null,
+    nombre:        formData.get("nombre"),
+    color:         formData.get("color") ?? "#6b7280",
+    categoria_id:  formData.get("categoria_id"),
+    parent_id:     formData.get("parent_id") || null,
+    es_expediente: formData.get("es_expediente") === "true",
   });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
   }
   try {
     const createData: Parameters<typeof etiquetaRepository.create>[0] = {
-      nombre:    parsed.data.nombre,
-      color:     parsed.data.color,
-      categoria: { connect: { id: parsed.data.categoria_id } },
+      nombre:        parsed.data.nombre,
+      color:         parsed.data.color,
+      es_expediente: parsed.data.es_expediente ?? false,
+      categoria:     { connect: { id: parsed.data.categoria_id } },
     };
     if (parsed.data.parent_id) {
       createData.parent = { connect: { id: parsed.data.parent_id } };
@@ -250,6 +253,43 @@ export async function updateEtiquetaParent(
 }
 
 /**
+ * Actualiza el flag es_expediente de una etiqueta (Servicio).
+ * Solo Admin. Las etiquetas de sistema no son editables.
+ */
+export async function updateEtiquetaExpediente(
+  etiquetaId: string,
+  esExpediente: boolean
+): Promise<ActionResult> {
+  const etiqueta = await etiquetaRepository.findById(etiquetaId);
+  if (!etiqueta) return { ok: false, error: "Etiqueta no encontrada" };
+  if (etiqueta.es_sistema) return { ok: false, error: "Las etiquetas de sistema no son editables" };
+  try {
+    await etiquetaRepository.update(etiquetaId, { es_expediente: esExpediente });
+    revalidatePath("/admin/taxonomia");
+    return { ok: true, data: undefined };
+  } catch {
+    return { ok: false, error: "Error al actualizar es_expediente" };
+  }
+}
+
+/**
+ * Restaura una etiqueta archivada (activo=false → activo=true).
+ * Solo Admin. Permite recuperar etiquetas que fueron soft-deleted.
+ */
+export async function restoreEtiqueta(id: string): Promise<ActionResult> {
+  const etiqueta = await etiquetaRepository.findById(id);
+  if (!etiqueta) return { ok: false, error: "Etiqueta no encontrada" };
+  if (etiqueta.activo) return { ok: false, error: "La etiqueta ya está activa" };
+  try {
+    await etiquetaRepository.update(id, { activo: true });
+    revalidatePath("/admin/taxonomia");
+    return { ok: true, data: undefined };
+  } catch {
+    return { ok: false, error: "Error al restaurar la etiqueta" };
+  }
+}
+
+/**
  * Libera todas las etiquetas de contenido: pone es_sistema=false.
  * Solo las 5 CategoriaEtiqueta son inmutables (hardcoded CAJONES_SALI).
  * Las etiquetas individuales deben ser editables/borrables por el CEO.
@@ -262,6 +302,20 @@ export async function liberateContentTags(): Promise<ActionResult<{ updated: num
     return { ok: true, data: { updated: result } };
   } catch {
     return { ok: false, error: "Error al liberar etiquetas de sistema" };
+  }
+}
+
+/**
+ * Devuelve las categorías con TODAS las etiquetas (incluidas archivadas).
+ * Solo para admin — modo ghost de recuperación.
+ */
+export async function getCategoriasWithArchived() {
+  try {
+    const all = await categoriaEtiquetaRepository.findAllWithArchived();
+    const data = all.filter((c) => CAJONES_SALI.has(c.nombre));
+    return { ok: true, data } as const;
+  } catch {
+    return { ok: false, error: "Error al cargar categorías con archivadas" } as const;
   }
 }
 

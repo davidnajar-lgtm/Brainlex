@@ -44,10 +44,11 @@ const SUBCARPETAS_SERVICIO_DEFAULT = [
 function resolveSubcarpetas(
   blueprint: string[] | null | undefined
 ): string[] {
-  if (Array.isArray(blueprint) && blueprint.length > 0) {
-    return blueprint;
-  }
-  return SUBCARPETAS_SERVICIO_DEFAULT;
+  const folders = Array.isArray(blueprint) && blueprint.length > 0
+    ? blueprint
+    : SUBCARPETAS_SERVICIO_DEFAULT;
+  // Orden alfanumérico obligatorio (01, 02, A, B...)
+  return [...folders].sort((a, b) => a.localeCompare(b, "es", { numeric: true }));
 }
 
 /**

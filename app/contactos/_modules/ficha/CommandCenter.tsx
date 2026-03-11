@@ -739,23 +739,25 @@ function FolderTreeView({
 }) {
   const isPlaceholder = node.type === "placeholder";
   const isYear = node.type === "year";
+  // Ghost mode: carpetas de nivel 3+ sin contenido real se muestran atenuadas
+  const isGhost = isPlaceholder && node.children.length === 0 && depth >= 3;
   const connector = depth === 0 ? "" : isLast ? "└─ " : "├─ ";
   return (
     <div style={{ paddingLeft: depth > 0 ? 14 : 0 }}>
       <div
         className={`flex items-center gap-1 py-[2px] ${
           isYear ? "rounded-md border border-dashed border-blue-500/20 bg-blue-500/5 px-1.5 my-0.5" : ""
-        }`}
+        } ${isGhost ? "opacity-40" : ""}`}
       >
         {depth > 0 && (
-          <span className="text-zinc-700 text-[10px] font-mono select-none shrink-0 w-[20px]">
+          <span className={`text-[10px] font-mono select-none shrink-0 w-[20px] ${isGhost ? "text-zinc-800" : "text-zinc-700"}`}>
             {connector}
           </span>
         )}
         {isYear ? (
           <CalendarDays className="h-3 w-3 shrink-0 text-blue-400" />
         ) : isPlaceholder ? (
-          <Folder className="h-3 w-3 text-zinc-700 shrink-0" />
+          <Folder className={`h-3 w-3 shrink-0 ${isGhost ? "text-zinc-800" : "text-zinc-700"}`} />
         ) : (
           <Folder
             className="h-3 w-3 shrink-0"
@@ -766,6 +768,8 @@ function FolderTreeView({
           className={`text-[11px] ${
             isYear
               ? "font-medium text-blue-400 italic"
+              : isGhost
+              ? "text-zinc-700 italic"
               : isPlaceholder
               ? "text-zinc-600 italic"
               : depth === 0
@@ -776,6 +780,7 @@ function FolderTreeView({
           }`}
         >
           {isYear ? `📅 ${node.name}` : node.name}
+          {isGhost && <span className="ml-1 text-[8px] text-zinc-800 font-normal">(vacía)</span>}
         </span>
       </div>
       {node.children.map((child, i) => (
