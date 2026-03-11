@@ -16,7 +16,7 @@
 // ============================================================================
 
 import { useState, useTransition } from "react";
-import { Plus, Tag, Folder, ChevronDown, ChevronRight, Check, X, Pencil, Lock, Trash2, FolderTree, Globe, Building2, AlertTriangle, ShieldAlert, Eye, EyeOff, RotateCcw } from "lucide-react";
+import { Plus, Tag, Folder, ChevronDown, ChevronRight, Check, X, Pencil, Lock, Trash2, FolderTree, Globe, Building2, AlertTriangle, ShieldAlert, Eye, EyeOff, RotateCcw, GripVertical } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   createEtiqueta,
@@ -699,6 +699,9 @@ function CategoriaCard({
         className="group inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset"
         style={{ backgroundColor: `${e.color}22`, color: e.color }}
       >
+        {catTipo === "CONSTRUCTOR" && (
+          <GripVertical className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-50 cursor-grab text-zinc-500 -ml-0.5" />
+        )}
         <ColorDot color={e.color} />
         {e.nombre}
         {/* Parent badge — solo en vista plana (sin agrupación) */}
