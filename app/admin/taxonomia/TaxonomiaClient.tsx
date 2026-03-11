@@ -16,7 +16,8 @@
 // ============================================================================
 
 import { useState, useTransition } from "react";
-import { Plus, Tag, Folder, ChevronDown, ChevronRight, Check, X, Pencil, Lock, Trash2, FolderTree, Globe, Building2 } from "lucide-react";
+import { Plus, Tag, Folder, ChevronDown, ChevronRight, Check, X, Pencil, Lock, Trash2, FolderTree, Globe, Building2, AlertTriangle, ShieldAlert } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   createEtiqueta,
   deleteEtiqueta,
@@ -430,6 +431,12 @@ function CategoriaCard({
   const [usageCounts,     setUsageCounts]     = useState<Record<string, number>>({});
   const [isPending,       startTransition]    = useTransition();
 
+  // ── Estado del modal de borrado/archivado ───────────────────────────────
+  const [deleteModal, setDeleteModal] = useState<{
+    id: string; nombre: string; usages: number;
+  } | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
   function startEdit(e: { id: string; nombre: string; color: string; parent_id?: string | null }) {
     setEditingId(e.id);
     setEditName(e.nombre);
@@ -511,28 +518,27 @@ function CategoriaCard({
     return count;
   }
 
+  /** Abre el modal de confirmación con el conteo de usos precargado. */
   function handleDeleteEtiqueta(id: string, nombre: string, es_sistema: boolean) {
     if (es_sistema) { setError(`"${nombre}" es una etiqueta de sistema y no puede borrarse.`); return; }
     startTransition(async () => {
       const usages = await loadUsageCount(id);
-
-      if (usages === 0) {
-        // Sin vínculos — borrado físico directo
-        if (!confirm(`¿Borrar la etiqueta "${nombre}"? Esta acción es irreversible.`)) return;
-        const res = await deleteEtiqueta(id);
-        if (!res.ok) { setError(res.error); return; }
-        onEtiquetaDeleted(id);
-      } else {
-        // Con vínculos — ofrecer archivar
-        if (!confirm(
-          `"${nombre}" tiene ${usages} contacto${usages > 1 ? "s" : ""} vinculado${usages > 1 ? "s" : ""}.\n\n` +
-          `¿Deseas ARCHIVARLA? Desaparecerá del catálogo pero los contactos que ya la tienen asignada conservarán el vínculo histórico.`
-        )) return;
-        const res = await deleteEtiqueta(id);
-        if (!res.ok) { setError(res.error); return; }
-        onEtiquetaDeleted(id);
-      }
+      setDeleteModal({ id, nombre, usages });
     });
+  }
+
+  /** Ejecuta la acción real de borrado/archivado tras confirmar en el modal. */
+  async function executeDelete() {
+    if (!deleteModal) return;
+    setDeleteLoading(true);
+    try {
+      const res = await deleteEtiqueta(deleteModal.id);
+      if (!res.ok) { setError(res.error); return; }
+      onEtiquetaDeleted(deleteModal.id);
+    } finally {
+      setDeleteLoading(false);
+      setDeleteModal(null);
+    }
   }
 
   // ── Render de una etiqueta individual (reutilizado en vista plana y agrupada) ──
@@ -814,6 +820,51 @@ function CategoriaCard({
             </button>
           )}
         </div>
+      )}
+
+      {/* ── Modal de confirmación de borrado/archivado ────────────────────── */}
+      {deleteModal && deleteModal.usages === 0 && (
+        <ConfirmDialog
+          open
+          variant="danger"
+          icon={<Trash2 className="h-4 w-4" />}
+          title={`Eliminar "${deleteModal.nombre}"`}
+          confirmLabel="Eliminar"
+          loading={deleteLoading}
+          onClose={() => setDeleteModal(null)}
+          onConfirm={executeDelete}
+        >
+          <p>
+            Esta etiqueta no tiene asignaciones activas.
+            El borrado es <strong className="text-red-400">permanente e irreversible</strong>.
+          </p>
+        </ConfirmDialog>
+      )}
+      {deleteModal && deleteModal.usages > 0 && (
+        <ConfirmDialog
+          open
+          variant="warning"
+          icon={<ShieldAlert className="h-4 w-4" />}
+          title={`"${deleteModal.nombre}" está en uso`}
+          confirmLabel="Archivar"
+          loading={deleteLoading}
+          onClose={() => setDeleteModal(null)}
+          onConfirm={executeDelete}
+        >
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+              <span className="text-amber-400 font-medium">
+                {deleteModal.usages} contacto{deleteModal.usages > 1 ? "s" : ""} vinculado{deleteModal.usages > 1 ? "s" : ""}
+              </span>
+            </div>
+            <p>
+              Para mantener la integridad del historial, esta etiqueta no se puede eliminar.
+              Al <strong className="text-amber-400">archivarla</strong>, desaparecerá de los selectores
+              pero los contactos que ya la tienen conservarán el vínculo.
+            </p>
+          </div>
+        </ConfirmDialog>
       )}
     </div>
   );
