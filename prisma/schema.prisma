@@ -393,17 +393,22 @@ model Etiqueta {
   color        String        @default("#6b7280") /// Hex color para pills de UI
   categoria_id String
   es_sistema   Boolean       @default(false)     /// true = predefinida, no eliminable
+  activo       Boolean       @default(true)      /// false = archivada (soft-delete), oculta en catálogo pero preserva vínculos
   scope        EtiquetaScope @default(GLOBAL)    /// @Scope-Guard: visibilidad por tenant
   blueprint    Json?                             /// Estructura de subcarpetas para etiquetas Constructor (Servicio/Departamento)
+  parent_id    String?                           /// Jerarquía: Servicio → Departamento padre (obligatorio para Servicio)
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   categoria    CategoriaEtiqueta @relation(fields: [categoria_id], references: [id])
+  parent       Etiqueta?         @relation("EtiquetaHierarchy", fields: [parent_id], references: [id])
+  children     Etiqueta[]        @relation("EtiquetaHierarchy")
   asignaciones EtiquetaAsignada[]
 
   @@unique([nombre, categoria_id])
   @@index([categoria_id])
+  @@index([parent_id])
   @@map("etiquetas")
 }
 

@@ -53,6 +53,8 @@ interface EtiquetaOption {
   color:      string;
   es_sistema: boolean;
   scope:      string;
+  parent_id?: string | null;
+  parent?:    { id: string; nombre: string } | null;
   categoria:  { id: string; nombre: string };
 }
 
@@ -80,6 +82,8 @@ interface DropPayload {
   color:           string;
   categoriaNombre: string;
   categoriaTipo:   "CONSTRUCTOR" | "ATRIBUTO";
+  parentId?:       string | null;
+  parentNombre?:   string | null;
 }
 
 interface CommandCenterProps {
@@ -211,10 +215,33 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
       toast({ message: `"${payload.nombre}" ya asignada`, variant: "warning", icon: "tag" });
       return;
     }
+
+    // ── Auto-asignación de Departamento padre para Servicios ──────────────
+    // Si el Servicio tiene un parentId (Departamento) y el contacto no lo tiene,
+    // asignamos el Departamento padre automáticamente antes del Servicio.
+    if (payload.categoriaNombre === "Servicio" && payload.parentId && !isAlreadyAssigned(payload.parentId)) {
+      const parentResult = await asignarEtiqueta(payload.parentId, contactoId, "CONTACTO");
+      if (parentResult.ok) {
+        const parentTag: AssignedTag = {
+          id:          `opt-${payload.parentId}`,
+          etiqueta_id: payload.parentId,
+          etiqueta: {
+            id:        payload.parentId,
+            nombre:    payload.parentNombre ?? "Departamento",
+            color:     "#f97316",
+            blueprint: null,
+            categoria: { id: "Departamento", nombre: "Departamento" },
+          },
+        };
+        setAssigned((prev) => [...prev, parentTag]);
+        toast({ message: `Departamento "${payload.parentNombre}" asignado automáticamente`, variant: "info", icon: "folder" });
+      }
+    }
+
     const result = await asignarEtiqueta(payload.id, contactoId, "CONTACTO");
     if (!result.ok) { toast({ message: result.error, variant: "error" }); return; }
 
-    // Actualización optimista — solo añade la etiqueta que el usuario eligió
+    // Actualización optimista — añade la etiqueta que el usuario eligió
     const optimisticTag: AssignedTag = {
       id:          `opt-${payload.id}`,
       etiqueta_id: payload.id,
@@ -259,6 +286,8 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
       id: e.id, nombre: e.nombre, color: e.color,
       categoriaNombre: e.categoria.nombre,
       categoriaTipo: getCategoriaTipo(e.categoria.nombre),
+      parentId: e.parent_id ?? null,
+      parentNombre: e.parent?.nombre ?? null,
     });
   }
 
@@ -267,6 +296,8 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
       id: e.id, nombre: e.nombre, color: e.color,
       categoriaNombre: e.categoria.nombre,
       categoriaTipo: getCategoriaTipo(e.categoria.nombre),
+      parentId: e.parent_id ?? null,
+      parentNombre: e.parent?.nombre ?? null,
     } satisfies DropPayload);
   }
 
@@ -335,6 +366,13 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
     .filter((a) => a.etiqueta.categoria.nombre === "Identidad" && isYearTag(a.etiqueta.nombre))
     .map((a) => a.etiqueta.nombre);
   const folderTree = buildDriveFolderTree(contactoName, constructorTags, yearTags);
+
+  // ─── Filtrado inteligente: Departamentos asignados → resaltar Servicios hijos ──
+  const assignedDeptIds = new Set(
+    assigned
+      .filter((a) => a.etiqueta.categoria.nombre === "Departamento")
+      .map((a) => a.etiqueta_id)
+  );
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
@@ -619,10 +657,20 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
                     {grupo.nombre}
                   </p>
                 </div>
-                {/* Tags — dense rows */}
+                {/* Tags — dense rows, with smart filtering for Servicios */}
                 <div className="flex flex-wrap gap-x-1 gap-y-0 px-2 pb-0.5">
                   {grupo.etiquetas.map((e) => {
                     const done = isAlreadyAssigned(e.id);
+                    // Smart highlight: Servicios whose parent Departamento is assigned → glow
+                    const isRelatedService = grupo.nombre === "Servicio"
+                      && assignedDeptIds.size > 0
+                      && !!e.parent_id
+                      && assignedDeptIds.has(e.parent_id);
+                    // Dim unrelated services when there are assigned depts
+                    const isDimmedService = grupo.nombre === "Servicio"
+                      && assignedDeptIds.size > 0
+                      && !isRelatedService
+                      && !done;
                     return (
                       <div
                         key={e.id}
@@ -632,19 +680,34 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
                           ev.dataTransfer.effectAllowed = "copy";
                         }}
                         onClick={() => handlePaletteClick(e)}
-                        className={`flex items-center gap-1 py-[2px] text-[10px] transition-colors ${
+                        className={`flex items-center gap-1 py-[2px] text-[10px] transition-all ${
                           done
                             ? "opacity-25 cursor-default"
+                            : isRelatedService
+                            ? "cursor-grab hover:text-zinc-100 active:cursor-grabbing"
+                            : isDimmedService
+                            ? "opacity-30 cursor-grab hover:opacity-70 active:cursor-grabbing"
                             : "cursor-grab hover:text-zinc-200 active:cursor-grabbing"
                         }`}
                       >
                         <span
-                          className="h-1.5 w-1.5 rounded-full shrink-0"
+                          className={`h-1.5 w-1.5 rounded-full shrink-0 ${isRelatedService ? "ring-1 ring-amber-500/60" : ""}`}
                           style={{ backgroundColor: e.color }}
                         />
-                        <span className={`truncate ${done ? "text-zinc-800 line-through" : "text-zinc-500"}`}>
+                        <span className={`truncate ${
+                          done
+                            ? "text-zinc-800 line-through"
+                            : isRelatedService
+                            ? "text-amber-400 font-medium"
+                            : "text-zinc-500"
+                        }`}>
                           {e.nombre}
                         </span>
+                        {isRelatedService && e.parent && (
+                          <span className="text-[7px] text-amber-500/50 font-bold uppercase">
+                            {e.parent.nombre.slice(0, 3)}
+                          </span>
+                        )}
                       </div>
                     );
                   })}

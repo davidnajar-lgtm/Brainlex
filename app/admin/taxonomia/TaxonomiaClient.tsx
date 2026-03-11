@@ -16,13 +16,15 @@
 // ============================================================================
 
 import { useState, useTransition } from "react";
-import { Plus, Tag, Folder, ChevronDown, ChevronRight, Check, X, Pencil, Lock, FolderTree, Globe, Building2 } from "lucide-react";
+import { Plus, Tag, Folder, ChevronDown, ChevronRight, Check, X, Pencil, Lock, Trash2, FolderTree, Globe, Building2 } from "lucide-react";
 import {
   createEtiqueta,
   deleteEtiqueta,
+  getEtiquetaUsageCount,
   updateEtiqueta,
   updateBlueprint,
   updateEtiquetaScope,
+  liberateContentTags,
 } from "@/lib/modules/entidades/actions/etiquetas.actions";
 import type { CategoriaConEtiquetas } from "@/lib/modules/entidades/repositories/etiqueta.repository";
 import type { Etiqueta } from "@prisma/client";
@@ -97,6 +99,10 @@ export function TaxonomiaClient({ initialCategorias }: TaxonomiaClientProps) {
   );
   const [expandedIds,  setExpandedIds]  = useState<Set<string>>(new Set());
   const [error,        setError]        = useState<string | null>(null);
+  const [liberated,    setLiberated]    = useState(false);
+
+  // Detectar si hay etiquetas con es_sistema=true en contenido
+  const hasSistemaContent = categorias.some((c) => c.etiquetas.some((e) => e.es_sistema));
 
   function toggleExpand(id: string) {
     setExpandedIds((prev) => {
@@ -130,6 +136,36 @@ export function TaxonomiaClient({ initialCategorias }: TaxonomiaClientProps) {
         Arquitectura de 5 cajones fijos. No se pueden crear ni eliminar categorias.
       </div>
 
+      {/* Botón de liberación: quita es_sistema de etiquetas de contenido */}
+      {hasSistemaContent && !liberated && (
+        <button
+          onClick={async () => {
+            const res = await liberateContentTags();
+            if (res.ok) {
+              // Actualizar estado local: todas las etiquetas pasan a es_sistema=false
+              setCategorias((prev) =>
+                prev.map((c) => ({
+                  ...c,
+                  etiquetas: c.etiquetas.map((e) => ({ ...e, es_sistema: false })),
+                }))
+              );
+              setLiberated(true);
+            } else {
+              setError(res.error);
+            }
+          }}
+          className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-2.5 text-xs text-amber-500 hover:bg-amber-500/10 transition-colors w-full text-left"
+        >
+          <Lock className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1">
+            Hay etiquetas marcadas como <strong>sistema</strong> (no editables). Pulsa para liberar todas y permitir edición/borrado.
+          </span>
+          <span className="shrink-0 rounded bg-amber-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider">
+            Liberar
+          </span>
+        </button>
+      )}
+
       {categorias.map((cat, idx) => {
         const catTipo = getCategoriaTipo(cat.nombre);
         const showSeparator = idx > 0 && (ORDEN_VISUAL[categorias[idx - 1]?.nombre] ?? 0) <= 2 && (ORDEN_VISUAL[cat.nombre] ?? 0) >= 3;
@@ -147,6 +183,11 @@ export function TaxonomiaClient({ initialCategorias }: TaxonomiaClientProps) {
             catTipo={catTipo}
             expanded={expandedIds.has(cat.id)}
             onToggle={() => toggleExpand(cat.id)}
+            departamentos={
+              cat.nombre === "Servicio"
+                ? categorias.find((c) => c.nombre === "Departamento")?.etiquetas ?? []
+                : []
+            }
             onEtiquetaCreated={(etiqueta) => {
               setCategorias((prev) =>
                 prev.map((c) =>
@@ -359,6 +400,7 @@ function CategoriaCard({
   catTipo,
   expanded,
   onToggle,
+  departamentos,
   onEtiquetaCreated,
   onEtiquetaDeleted,
   onEtiquetaUpdated,
@@ -368,75 +410,238 @@ function CategoriaCard({
   catTipo: "CONSTRUCTOR" | "ATRIBUTO";
   expanded: boolean;
   onToggle: () => void;
+  departamentos: Etiqueta[];
   onEtiquetaCreated: (e: Etiqueta) => void;
   onEtiquetaDeleted: (id: string) => void;
   onEtiquetaUpdated: (id: string, data: Partial<Etiqueta>) => void;
   setError: (msg: string | null) => void;
 }) {
+  const isServicio = cat.nombre === "Servicio";
   const [showNewEtiqueta, setShowNewEtiqueta] = useState(false);
   const [newName,         setNewName]         = useState("");
   const [newColor,        setNewColor]        = useState("#6b7280");
+  const [newParentId,     setNewParentId]     = useState<string | null>(null);
   const [editingId,       setEditingId]       = useState<string | null>(null);
   const [editName,        setEditName]        = useState("");
   const [editColor,       setEditColor]       = useState("#6b7280");
+  const [editParentId,    setEditParentId]    = useState<string | null>(null);
   const [blueprintEditId, setBlueprintEditId] = useState<string | null>(null);
   const [scopeEditId,     setScopeEditId]     = useState<string | null>(null);
+  const [usageCounts,     setUsageCounts]     = useState<Record<string, number>>({});
   const [isPending,       startTransition]    = useTransition();
 
-  function startEdit(e: { id: string; nombre: string; color: string }) {
+  function startEdit(e: { id: string; nombre: string; color: string; parent_id?: string | null }) {
     setEditingId(e.id);
     setEditName(e.nombre);
     setEditColor(e.color);
+    setEditParentId(e.parent_id ?? null);
   }
 
   function cancelEdit() {
     setEditingId(null);
     setEditName("");
     setEditColor("#6b7280");
+    setEditParentId(null);
   }
 
   function handleUpdateEtiqueta(id: string) {
     if (!editName.trim()) return;
+    if (isServicio && !editParentId) {
+      setError("Selecciona un Departamento padre para este Servicio.");
+      return;
+    }
     const fd = new FormData();
     fd.set("nombre", editName.trim());
     fd.set("color", editColor);
     startTransition(async () => {
       const res = await updateEtiqueta(id, null, fd);
       if (!res.ok) { setError(res.error); return; }
-      onEtiquetaUpdated(id, { nombre: editName.trim(), color: editColor });
+      // Si cambió el parent_id, actualizar vía update directo
+      if (isServicio && editParentId) {
+        const currentEtq = cat.etiquetas.find((e) => e.id === id);
+        if (currentEtq?.parent_id !== editParentId) {
+          const { updateEtiquetaParent } = await import("@/lib/modules/entidades/actions/etiquetas.actions");
+          const parentRes = await updateEtiquetaParent(id, editParentId);
+          if (!parentRes.ok) { setError(parentRes.error); return; }
+        }
+      }
+      onEtiquetaUpdated(id, {
+        nombre: editName.trim(),
+        color: editColor,
+        ...(isServicio ? { parent_id: editParentId } : {}),
+      });
       cancelEdit();
     });
   }
 
   function handleCreateEtiqueta() {
     if (!newName.trim()) return;
+    if (isServicio && !newParentId) {
+      setError("Selecciona un Departamento padre para este Servicio.");
+      return;
+    }
     const fd = new FormData();
     fd.set("nombre", newName.trim());
     fd.set("color", newColor);
     fd.set("categoria_id", cat.id);
+    if (newParentId) fd.set("parent_id", newParentId);
     startTransition(async () => {
       const res = await createEtiqueta(null, fd);
       if (!res.ok) { setError(res.error); return; }
       onEtiquetaCreated({
         id: res.data.id, nombre: newName.trim(), color: newColor,
-        categoria_id: cat.id, es_sistema: false, scope: "GLOBAL" as const,
-        blueprint: null,
+        categoria_id: cat.id, es_sistema: false, activo: true,
+        scope: "GLOBAL" as const, blueprint: null,
+        parent_id: newParentId,
         created_at: new Date(), updated_at: new Date(),
       });
       setNewName("");
       setNewColor("#6b7280");
+      setNewParentId(null);
       setShowNewEtiqueta(false);
     });
   }
 
+  /** Carga el conteo de usos de una etiqueta (lazy, bajo demanda). */
+  async function loadUsageCount(id: string): Promise<number> {
+    if (usageCounts[id] !== undefined) return usageCounts[id];
+    const res = await getEtiquetaUsageCount(id);
+    const count = res.ok ? res.data : 0;
+    setUsageCounts((prev) => ({ ...prev, [id]: count }));
+    return count;
+  }
+
   function handleDeleteEtiqueta(id: string, nombre: string, es_sistema: boolean) {
     if (es_sistema) { setError(`"${nombre}" es una etiqueta de sistema y no puede borrarse.`); return; }
-    if (!confirm(`¿Borrar la etiqueta "${nombre}"? Se quitará de todas las entidades que la tienen asignada.`)) return;
     startTransition(async () => {
-      const res = await deleteEtiqueta(id);
-      if (!res.ok) { setError(res.error); return; }
-      onEtiquetaDeleted(id);
+      const usages = await loadUsageCount(id);
+
+      if (usages === 0) {
+        // Sin vínculos — borrado físico directo
+        if (!confirm(`¿Borrar la etiqueta "${nombre}"? Esta acción es irreversible.`)) return;
+        const res = await deleteEtiqueta(id);
+        if (!res.ok) { setError(res.error); return; }
+        onEtiquetaDeleted(id);
+      } else {
+        // Con vínculos — ofrecer archivar
+        if (!confirm(
+          `"${nombre}" tiene ${usages} contacto${usages > 1 ? "s" : ""} vinculado${usages > 1 ? "s" : ""}.\n\n` +
+          `¿Deseas ARCHIVARLA? Desaparecerá del catálogo pero los contactos que ya la tienen asignada conservarán el vínculo histórico.`
+        )) return;
+        const res = await deleteEtiqueta(id);
+        if (!res.ok) { setError(res.error); return; }
+        onEtiquetaDeleted(id);
+      }
     });
+  }
+
+  // ── Render de una etiqueta individual (reutilizado en vista plana y agrupada) ──
+  function renderEtiquetaTag(e: Etiqueta) {
+    if (editingId === e.id) {
+      return (
+        <div key={e.id} className="space-y-1.5">
+          {isServicio && (
+            <div className="flex items-center gap-2">
+              <Folder className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+              <select
+                value={editParentId ?? ""}
+                onChange={(ev) => setEditParentId(ev.target.value || null)}
+                className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-100 outline-none focus:border-amber-500/60"
+              >
+                <option value="">— Departamento padre (obligatorio) —</option>
+                {departamentos.map((d) => (
+                  <option key={d.id} value={d.id}>{d.nombre}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800 px-2 py-1">
+            <input type="color" value={editColor} onChange={(ev) => setEditColor(ev.target.value)}
+              className="h-5 w-5 cursor-pointer rounded border-0 bg-transparent p-0 shrink-0" />
+            <input value={editName} onChange={(ev) => setEditName(ev.target.value)}
+              className="w-28 rounded bg-transparent text-xs text-zinc-100 outline-none placeholder-zinc-600"
+              onKeyDown={(ev) => { if (ev.key === "Enter") handleUpdateEtiqueta(e.id); if (ev.key === "Escape") cancelEdit(); }}
+              autoFocus />
+            <button onClick={() => handleUpdateEtiqueta(e.id)} disabled={!editName.trim() || (isServicio && !editParentId) || isPending}
+              className="text-zinc-400 transition-colors hover:text-orange-400 disabled:opacity-40" title="Guardar">
+              <Check className="h-3 w-3" />
+            </button>
+            <button onClick={cancelEdit} className="text-zinc-600 transition-colors hover:text-zinc-300" title="Cancelar">
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    const parentName = isServicio && e.parent_id
+      ? departamentos.find((d) => d.id === e.parent_id)?.nombre
+      : null;
+
+    return (
+      <span
+        key={e.id}
+        className="group inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset"
+        style={{ backgroundColor: `${e.color}22`, color: e.color }}
+      >
+        <ColorDot color={e.color} />
+        {e.nombre}
+        {/* Parent badge — solo en vista plana (sin agrupación) */}
+        {parentName && (
+          <span className="inline-flex items-center gap-0.5 rounded-sm bg-amber-500/10 px-1 py-[1px] text-[8px] font-bold uppercase tracking-wider text-amber-500/70">
+            <Folder className="h-2 w-2" />
+            {parentName}
+          </span>
+        )}
+        {/* Scope badge — clickable para editar */}
+        {!e.es_sistema ? (
+          <button
+            onClick={() => setScopeEditId(scopeEditId === e.id ? null : e.id)}
+            className="transition-opacity hover:opacity-100"
+            title="Cambiar visibilidad (scope)"
+          >
+            <ScopeBadge scope={e.scope} small />
+          </button>
+        ) : (
+          <ScopeBadge scope={e.scope} small />
+        )}
+        {e.es_sistema && (
+          <span className="text-[9px] font-semibold opacity-60 uppercase">sys</span>
+        )}
+        {!e.es_sistema && (
+          <>
+            {catTipo === "CONSTRUCTOR" && (
+              <button
+                onClick={() => { setBlueprintEditId(blueprintEditId === e.id ? null : e.id); setScopeEditId(null); }}
+                className={`ml-0.5 transition-opacity ${
+                  blueprintEditId === e.id
+                    ? "opacity-100 text-amber-500"
+                    : "opacity-0 group-hover:opacity-70 hover:!opacity-100"
+                }`}
+                title="Editar blueprint de subcarpetas"
+              >
+                <FolderTree className="h-2.5 w-2.5" />
+              </button>
+            )}
+            <button
+              onClick={() => startEdit(e)}
+              className="ml-0.5 opacity-0 transition-opacity group-hover:opacity-70 hover:!opacity-100"
+              title="Editar etiqueta"
+            >
+              <Pencil className="h-2.5 w-2.5" />
+            </button>
+            <DeleteOrArchiveButton
+              etiquetaId={e.id}
+              nombre={e.nombre}
+              esSistema={e.es_sistema}
+              usageCounts={usageCounts}
+              onLoadUsage={loadUsageCount}
+              onDelete={() => handleDeleteEtiqueta(e.id, e.nombre, e.es_sistema)}
+            />
+          </>
+        )}
+      </span>
+    );
   }
 
   return (
@@ -476,89 +681,53 @@ function CategoriaCard({
             <p className="text-xs text-zinc-600 py-1">Sin etiquetas en esta categoría.</p>
           )}
 
+          {/* Agrupación visual: para Servicio, agrupa por Departamento padre */}
+          {isServicio && cat.etiquetas.some((e) => e.parent_id) && (
+            <div className="space-y-2">
+              {/* Servicios agrupados por departamento padre */}
+              {(() => {
+                const grouped = new Map<string | null, typeof cat.etiquetas>();
+                for (const e of cat.etiquetas) {
+                  const key = e.parent_id;
+                  if (!grouped.has(key)) grouped.set(key, []);
+                  grouped.get(key)!.push(e);
+                }
+                const parentNames = new Map(departamentos.map((d) => [d.id, d.nombre]));
+                const sortedKeys = [...grouped.keys()].sort((a, b) => {
+                  if (a === null) return 1;
+                  if (b === null) return -1;
+                  return (parentNames.get(a) ?? "").localeCompare(parentNames.get(b) ?? "");
+                });
+                return sortedKeys.map((parentId) => {
+                  const tags = grouped.get(parentId)!;
+                  const parentName = parentId ? parentNames.get(parentId) ?? "Departamento desconocido" : "Sin departamento";
+                  return (
+                    <div key={parentId ?? "orphan"} className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 p-2">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <Folder className="h-2.5 w-2.5 text-amber-500/70" />
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-500">
+                          {parentName}
+                        </span>
+                        {!parentId && (
+                          <span className="text-[8px] text-amber-500/60 italic">huérfano</span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {tags.map((e) => renderEtiquetaTag(e))}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          )}
+
+          {/* Vista plana para categorías que no son Servicio, o Servicio sin padres asignados */}
+          {(!isServicio || !cat.etiquetas.some((e) => e.parent_id)) && (
           <div className="flex flex-wrap gap-2">
-            {cat.etiquetas.map((e) => (
-              editingId === e.id ? (
-                <div key={e.id} className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800 px-2 py-1">
-                  <input
-                    type="color"
-                    value={editColor}
-                    onChange={(ev) => setEditColor(ev.target.value)}
-                    className="h-5 w-5 cursor-pointer rounded border-0 bg-transparent p-0 shrink-0"
-                  />
-                  <input
-                    value={editName}
-                    onChange={(ev) => setEditName(ev.target.value)}
-                    className="w-28 rounded bg-transparent text-xs text-zinc-100 outline-none placeholder-zinc-600"
-                    onKeyDown={(ev) => { if (ev.key === "Enter") handleUpdateEtiqueta(e.id); if (ev.key === "Escape") cancelEdit(); }}
-                    autoFocus
-                  />
-                  <button onClick={() => handleUpdateEtiqueta(e.id)} disabled={!editName.trim() || isPending}
-                    className="text-zinc-400 transition-colors hover:text-orange-400 disabled:opacity-40" title="Guardar">
-                    <Check className="h-3 w-3" />
-                  </button>
-                  <button onClick={cancelEdit} className="text-zinc-600 transition-colors hover:text-zinc-300" title="Cancelar">
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ) : (
-                <span
-                  key={e.id}
-                  className="group inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset"
-                  style={{ backgroundColor: `${e.color}22`, color: e.color }}
-                >
-                  <ColorDot color={e.color} />
-                  {e.nombre}
-                  {/* Scope badge — clickable para editar */}
-                  {!e.es_sistema ? (
-                    <button
-                      onClick={() => setScopeEditId(scopeEditId === e.id ? null : e.id)}
-                      className="transition-opacity hover:opacity-100"
-                      title="Cambiar visibilidad (scope)"
-                    >
-                      <ScopeBadge scope={e.scope} small />
-                    </button>
-                  ) : (
-                    <ScopeBadge scope={e.scope} small />
-                  )}
-                  {e.es_sistema && (
-                    <span className="text-[9px] font-semibold opacity-60 uppercase">sys</span>
-                  )}
-                  {!e.es_sistema && (
-                    <>
-                      {catTipo === "CONSTRUCTOR" && (
-                        <button
-                          onClick={() => { setBlueprintEditId(blueprintEditId === e.id ? null : e.id); setScopeEditId(null); }}
-                          className={`ml-0.5 transition-opacity ${
-                            blueprintEditId === e.id
-                              ? "opacity-100 text-amber-500"
-                              : "opacity-0 group-hover:opacity-70 hover:!opacity-100"
-                          }`}
-                          title="Editar blueprint de subcarpetas"
-                        >
-                          <FolderTree className="h-2.5 w-2.5" />
-                        </button>
-                      )}
-                      <button
-                        onClick={() => startEdit(e)}
-                        className="ml-0.5 opacity-0 transition-opacity group-hover:opacity-70 hover:!opacity-100"
-                        title="Editar etiqueta"
-                      >
-                        <Pencil className="h-2.5 w-2.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteEtiqueta(e.id, e.nombre, e.es_sistema)}
-                        className="opacity-0 transition-opacity group-hover:opacity-70 hover:!opacity-100"
-                        title="Borrar etiqueta"
-                      >
-                        <X className="h-2.5 w-2.5" />
-                      </button>
-                    </>
-                  )}
-                </span>
-              )
-            ))}
+            {cat.etiquetas.map((e) => renderEtiquetaTag(e))}
           </div>
+          )}
 
           {/* Scope selector inline */}
           {scopeEditId && (() => {
@@ -592,30 +761,48 @@ function CategoriaCard({
 
           {/* Nueva etiqueta inline */}
           {showNewEtiqueta ? (
-            <div className="flex items-center gap-2 pt-1">
-              <input
-                type="color"
-                value={newColor}
-                onChange={(e) => setNewColor(e.target.value)}
-                className="h-7 w-7 cursor-pointer rounded border-0 bg-transparent p-0"
-                title="Color de la etiqueta"
-              />
-              <input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Nombre de la etiqueta"
-                className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-600 outline-none focus:border-orange-500/60"
-                onKeyDown={(e) => { if (e.key === "Enter") handleCreateEtiqueta(); if (e.key === "Escape") { setShowNewEtiqueta(false); setNewName(""); } }}
-                autoFocus
-              />
-              <button onClick={handleCreateEtiqueta} disabled={!newName.trim() || isPending}
-                className="rounded-lg bg-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-600 disabled:opacity-50">
-                <Check className="h-3 w-3" />
-              </button>
-              <button onClick={() => { setShowNewEtiqueta(false); setNewName(""); }}
-                className="rounded-lg border border-zinc-700 px-2 py-1.5 text-xs text-zinc-500 hover:text-zinc-300">
-                <X className="h-3 w-3" />
-              </button>
+            <div className="space-y-2 pt-1">
+              {/* Selector de Departamento padre — solo para Servicio */}
+              {isServicio && (
+                <div className="flex items-center gap-2">
+                  <Folder className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                  <select
+                    value={newParentId ?? ""}
+                    onChange={(e) => setNewParentId(e.target.value || null)}
+                    className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-100 outline-none focus:border-amber-500/60"
+                  >
+                    <option value="">— Departamento padre (obligatorio) —</option>
+                    {departamentos.map((d) => (
+                      <option key={d.id} value={d.id}>{d.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={newColor}
+                  onChange={(e) => setNewColor(e.target.value)}
+                  className="h-7 w-7 cursor-pointer rounded border-0 bg-transparent p-0"
+                  title="Color de la etiqueta"
+                />
+                <input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder={isServicio ? "Nombre del servicio" : "Nombre de la etiqueta"}
+                  className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-600 outline-none focus:border-orange-500/60"
+                  onKeyDown={(e) => { if (e.key === "Enter") handleCreateEtiqueta(); if (e.key === "Escape") { setShowNewEtiqueta(false); setNewName(""); setNewParentId(null); } }}
+                  autoFocus
+                />
+                <button onClick={handleCreateEtiqueta} disabled={!newName.trim() || (isServicio && !newParentId) || isPending}
+                  className="rounded-lg bg-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-600 disabled:opacity-50">
+                  <Check className="h-3 w-3" />
+                </button>
+                <button onClick={() => { setShowNewEtiqueta(false); setNewName(""); setNewParentId(null); }}
+                  className="rounded-lg border border-zinc-700 px-2 py-1.5 text-xs text-zinc-500 hover:text-zinc-300">
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
             </div>
           ) : (
             <button
@@ -629,5 +816,54 @@ function CategoriaCard({
         </div>
       )}
     </div>
+  );
+}
+
+// ─── DeleteOrArchiveButton — Candado visual según usos ──────────────────────
+
+function DeleteOrArchiveButton({
+  etiquetaId,
+  nombre,
+  esSistema,
+  usageCounts,
+  onLoadUsage,
+  onDelete,
+}: {
+  etiquetaId: string;
+  nombre: string;
+  esSistema: boolean;
+  usageCounts: Record<string, number>;
+  onLoadUsage: (id: string) => Promise<number>;
+  onDelete: () => void;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const count = usageCounts[etiquetaId];
+  const hasUsages = count !== undefined && count > 0;
+
+  if (esSistema) return null;
+
+  return (
+    <button
+      onClick={onDelete}
+      onMouseEnter={() => {
+        if (!loaded) {
+          onLoadUsage(etiquetaId).then(() => setLoaded(true));
+        }
+      }}
+      className={`opacity-0 transition-opacity group-hover:opacity-70 hover:!opacity-100 ${
+        hasUsages ? "text-amber-500" : ""
+      }`}
+      title={
+        hasUsages
+          ? `${count} contacto${count > 1 ? "s" : ""} vinculado${count > 1 ? "s" : ""} — se archivará`
+          : `Borrar "${nombre}"`
+      }
+    >
+      {hasUsages ? (
+        <Lock className="h-2.5 w-2.5" />
+      ) : (
+        <Trash2 className="h-2.5 w-2.5" />
+      )}
+    </button>
   );
 }

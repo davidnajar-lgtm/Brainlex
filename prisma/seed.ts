@@ -38,7 +38,7 @@ const CAJONES: {
   nombre:      string;
   descripcion: string;
   orden:       number;
-  etiquetas:   { nombre: string; color: string; scope: EtiquetaScope }[];
+  etiquetas:   { nombre: string; color: string; scope: EtiquetaScope; parentDept?: string }[];
 }[] = [
   // ── CAJÓN 1: IDENTIDAD ────────────────────────────────────────────────────
   // Atributos intrínsecos del contacto. Visibles para todos los tenants.
@@ -75,21 +75,22 @@ const CAJONES: {
 
   // ── CAJÓN 3: SERVICIO ─────────────────────────────────────────────────────
   // Línea de servicio prestada. Nivel 2 de ruta en Drive (@File-Mirror).
+  // parentDept: nombre del Departamento padre (se vincula tras crear).
   {
     nombre:      "Servicio",
     descripcion: "Línea de servicio prestado — Nivel 2 de ruta en Google Drive (@File-Mirror)",
     orden:       3,
     etiquetas:   [
       // LX — Lexconomy
-      { nombre: "Herencia",             color: "#a855f7", scope: "LEXCONOMY" },
-      { nombre: "Inmobiliario",         color: "#d946ef", scope: "LEXCONOMY" },
-      { nombre: "Mercantil",            color: "#ec4899", scope: "LEXCONOMY" },
-      { nombre: "Contabilidad",         color: "#f43f5e", scope: "LEXCONOMY" },
-      { nombre: "Recursos Humanos",     color: "#fb7185", scope: "LEXCONOMY" },
+      { nombre: "Herencia",             color: "#a855f7", scope: "LEXCONOMY", parentDept: "Jurídico" },
+      { nombre: "Inmobiliario",         color: "#d946ef", scope: "LEXCONOMY", parentDept: "Jurídico" },
+      { nombre: "Mercantil",            color: "#ec4899", scope: "LEXCONOMY", parentDept: "Jurídico" },
+      { nombre: "Contabilidad",         color: "#f43f5e", scope: "LEXCONOMY", parentDept: "Fiscal" },
+      { nombre: "Recursos Humanos",     color: "#fb7185", scope: "LEXCONOMY", parentDept: "Fiscal" },
       // LW — Lawork
-      { nombre: "Obra Nueva",           color: "#34d399", scope: "LAWTECH" },
-      { nombre: "Legalización",         color: "#6ee7b7", scope: "LAWTECH" },
-      { nombre: "Coordinación Seguridad", color: "#a7f3d0", scope: "LAWTECH" },
+      { nombre: "Obra Nueva",           color: "#34d399", scope: "LAWTECH",   parentDept: "Construcción" },
+      { nombre: "Legalización",         color: "#6ee7b7", scope: "LAWTECH",   parentDept: "Construcción" },
+      { nombre: "Coordinación Seguridad", color: "#a7f3d0", scope: "LAWTECH", parentDept: "CAE" },
     ],
   },
 
@@ -177,6 +178,10 @@ async function main() {
   console.log("    @Time-Keeper activo — fecha_asignacion en EtiquetaAsignada\n");
 
   // ── Cajones + Etiquetas ────────────────────────────────────────────────────
+  // Mapa para resolver parentDept → id tras la primera pasada
+  const etiquetaIdByNombre = new Map<string, string>();
+  const pendingParentLinks: { etiquetaId: string; parentDeptNombre: string }[] = [];
+
   for (const cajon of CAJONES) {
     const categoria = await prisma.categoriaEtiqueta.upsert({
       where:  { nombre: cajon.nombre },
@@ -186,7 +191,7 @@ async function main() {
     console.log(`  📦  Cajón [${cajon.orden}]: ${categoria.nombre}`);
 
     for (const etq of cajon.etiquetas) {
-      await prisma.etiqueta.upsert({
+      const record = await prisma.etiqueta.upsert({
         where:  { nombre_categoria_id: { nombre: etq.nombre, categoria_id: categoria.id } },
         update: { color: etq.color, scope: etq.scope, es_sistema: false },
         create: {
@@ -197,8 +202,28 @@ async function main() {
           categoria:  { connect: { id: categoria.id } },
         },
       });
+      etiquetaIdByNombre.set(etq.nombre, record.id);
+      if (etq.parentDept) {
+        pendingParentLinks.push({ etiquetaId: record.id, parentDeptNombre: etq.parentDept });
+      }
       const scopeTag = etq.scope === "GLOBAL" ? "🌐" : etq.scope === "LEXCONOMY" ? "⚖️ LX" : "🏗️ LW";
       console.log(`         · ${etq.nombre}  ${scopeTag}`);
+    }
+  }
+
+  // ── Vincular Servicios → Departamentos (parent_id) ──────────────────────
+  if (pendingParentLinks.length > 0) {
+    console.log("\n  🔗  Vínculos Servicio → Departamento:");
+    for (const link of pendingParentLinks) {
+      const parentId = etiquetaIdByNombre.get(link.parentDeptNombre);
+      if (parentId) {
+        await prisma.etiqueta.update({
+          where: { id: link.etiquetaId },
+          data:  { parent_id: parentId },
+        });
+        const servicioNombre = [...etiquetaIdByNombre.entries()].find(([, id]) => id === link.etiquetaId)?.[0];
+        console.log(`       · ${servicioNombre} → ${link.parentDeptNombre}`);
+      }
     }
   }
 
@@ -220,7 +245,7 @@ async function main() {
   }
 
   console.log("\n🎯  Motor SALI Fase 3 sembrado correctamente.");
-  console.log("    5 cajones · 24 etiquetas · 6 tipos de relación");
+  console.log(`    5 cajones · ${etiquetaIdByNombre.size} etiquetas · ${pendingParentLinks.length} vínculos padre · 6 tipos de relación`);
   console.log("    @File-Mirror: categorías DEPARTAMENTO y SERVICIO listas para Drive sync\n");
 }
 

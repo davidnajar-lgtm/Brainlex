@@ -32,8 +32,16 @@ export type CategoriaConEtiquetas = CategoriaEtiqueta & {
 // ─── Categorías ───────────────────────────────────────────────────────────────
 
 export const categoriaEtiquetaRepository = {
-  /** Todas las categorías ordenadas por `orden` ASC, con sus etiquetas. */
+  /** Todas las categorías ordenadas por `orden` ASC, con sus etiquetas activas. */
   async findAll(): Promise<CategoriaConEtiquetas[]> {
+    return prisma.categoriaEtiqueta.findMany({
+      orderBy: { orden: "asc" },
+      include: { etiquetas: { where: { activo: true }, orderBy: { nombre: "asc" } } },
+    });
+  },
+
+  /** Todas las categorías con TODAS las etiquetas (incluidas archivadas). Para admin. */
+  async findAllWithArchived(): Promise<CategoriaConEtiquetas[]> {
     return prisma.categoriaEtiqueta.findMany({
       orderBy: { orden: "asc" },
       include: { etiquetas: { orderBy: { nombre: "asc" } } },
@@ -43,7 +51,7 @@ export const categoriaEtiquetaRepository = {
   async findById(id: string): Promise<CategoriaConEtiquetas | null> {
     return prisma.categoriaEtiqueta.findUnique({
       where: { id },
-      include: { etiquetas: { orderBy: { nombre: "asc" } } },
+      include: { etiquetas: { where: { activo: true }, orderBy: { nombre: "asc" } } },
     });
   },
 
@@ -68,48 +76,47 @@ export const categoriaEtiquetaRepository = {
 // ─── Etiquetas ────────────────────────────────────────────────────────────────
 
 export const etiquetaRepository = {
+  /** Etiquetas activas con su categoría. */
   async findAll(): Promise<EtiquetaConCategoria[]> {
     return prisma.etiqueta.findMany({
+      where: { activo: true },
       orderBy: [{ categoria_id: "asc" }, { nombre: "asc" }],
       include: { categoria: true },
     });
   },
 
   /**
-   * @Scope-Guard — Devuelve etiquetas visibles para un tenant concreto.
+   * @Scope-Guard — Devuelve etiquetas ACTIVAS visibles para un tenant concreto.
    *
-   * Regla: scope == GLOBAL || scope == tenantScope
-   * Bypass CEO: si isSuperAdmin=true, devuelve todas sin filtro.
-   *
-   * @param tenantScope — EtiquetaScope del tenant activo ("LEXCONOMY" | "LAWTECH")
-   * @param isSuperAdmin — true bypasa el filtro (CEO / Superadmin)
+   * Regla: activo=true AND (scope == GLOBAL || scope == tenantScope)
+   * Bypass CEO: si isSuperAdmin=true, devuelve todos los scopes (pero siempre activo=true).
    */
   async findByTenant(
     tenantScope: EtiquetaScope,
     isSuperAdmin = false
   ): Promise<EtiquetaConCategoria[]> {
     const where: Prisma.EtiquetaWhereInput = isSuperAdmin
-      ? {}
-      : { scope: { in: ["GLOBAL", tenantScope] } };
+      ? { activo: true }
+      : { activo: true, scope: { in: ["GLOBAL", tenantScope] } };
 
     return prisma.etiqueta.findMany({
       where,
       orderBy: [{ categoria_id: "asc" }, { nombre: "asc" }],
-      include: { categoria: true },
+      include: { categoria: true, parent: { select: { id: true, nombre: true } } },
     });
   },
 
   async findByCategoria(categoriaId: string): Promise<Etiqueta[]> {
     return prisma.etiqueta.findMany({
-      where: { categoria_id: categoriaId },
+      where: { categoria_id: categoriaId, activo: true },
       orderBy: { nombre: "asc" },
     });
   },
 
-  async findById(id: string): Promise<EtiquetaConCategoria | null> {
+  async findById(id: string) {
     return prisma.etiqueta.findUnique({
       where: { id },
-      include: { categoria: true },
+      include: { categoria: true, parent: { select: { id: true, nombre: true } } },
     });
   },
 
@@ -121,9 +128,34 @@ export const etiquetaRepository = {
     return prisma.etiqueta.update({ where: { id }, data });
   },
 
-  /** Solo se puede borrar si es_sistema=false. La capa de acción lo verifica. */
+  /** Cuenta asignaciones ACTIVAS (fecha_desvinculacion=null) de una etiqueta. */
+  async countUsages(id: string): Promise<number> {
+    return prisma.etiquetaAsignada.count({
+      where: { etiqueta_id: id, fecha_desvinculacion: null },
+    });
+  },
+
+  /** Soft-delete: marca activo=false. Preserva vínculos históricos. */
+  async archive(id: string): Promise<Etiqueta> {
+    return prisma.etiqueta.update({ where: { id }, data: { activo: false } });
+  },
+
+  /** Borrado físico. Solo usar cuando no tiene asignaciones. */
   async delete(id: string): Promise<void> {
     await prisma.etiqueta.delete({ where: { id } });
+  },
+
+  /**
+   * Libera todas las etiquetas de contenido: es_sistema → false.
+   * Solo las CategoriaEtiqueta (5 cajones) son inmutables por diseño.
+   * Retorna el número de registros actualizados.
+   */
+  async bulkClearSistema(): Promise<number> {
+    const result = await prisma.etiqueta.updateMany({
+      where: { es_sistema: true },
+      data: { es_sistema: false },
+    });
+    return result.count;
   },
 };
 
@@ -138,7 +170,7 @@ export const etiquetaAsignadaRepository = {
   ) {
     return prisma.etiquetaAsignada.findMany({
       where: { entidad_id, entidad_tipo, fecha_desvinculacion: null },
-      include: { etiqueta: { include: { categoria: true } } },
+      include: { etiqueta: { include: { categoria: true, parent: { select: { id: true, nombre: true } } } } },
       orderBy: { fecha_asignacion: "asc" },
     });
   },

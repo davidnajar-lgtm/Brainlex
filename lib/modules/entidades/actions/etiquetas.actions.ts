@@ -39,6 +39,7 @@ const EtiquetaSchema = z.object({
   nombre:       z.string().min(1).max(80),
   color:        z.string().regex(/^#[0-9a-fA-F]{6}$/, "Color hex inválido").default("#6b7280"),
   categoria_id: z.string().cuid(),
+  parent_id:    z.string().cuid().nullable().optional(),
 });
 
 // ─── Tipos de retorno ─────────────────────────────────────────────────────────
@@ -134,16 +135,21 @@ export async function createEtiqueta(
     nombre:       formData.get("nombre"),
     color:        formData.get("color") ?? "#6b7280",
     categoria_id: formData.get("categoria_id"),
+    parent_id:    formData.get("parent_id") || null,
   });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
   }
   try {
-    const etiqueta = await etiquetaRepository.create({
+    const createData: Parameters<typeof etiquetaRepository.create>[0] = {
       nombre:    parsed.data.nombre,
       color:     parsed.data.color,
       categoria: { connect: { id: parsed.data.categoria_id } },
-    });
+    };
+    if (parsed.data.parent_id) {
+      createData.parent = { connect: { id: parsed.data.parent_id } };
+    }
+    const etiqueta = await etiquetaRepository.create(createData);
     revalidatePath("/admin/taxonomia");
     return { ok: true, data: { id: etiqueta.id } };
   } catch (e: unknown) {
@@ -178,16 +184,84 @@ export async function updateEtiqueta(
   }
 }
 
-export async function deleteEtiqueta(id: string): Promise<ActionResult> {
+/**
+ * Cuenta las asignaciones activas de una etiqueta.
+ * Usado por la UI para decidir candado vs papelera.
+ */
+export async function getEtiquetaUsageCount(id: string): Promise<ActionResult<number>> {
+  try {
+    const count = await etiquetaRepository.countUsages(id);
+    return { ok: true, data: count };
+  } catch {
+    return { ok: false, error: "Error al contar usos" };
+  }
+}
+
+/**
+ * Borrado inteligente de etiqueta:
+ * - Si tiene 0 asignaciones activas → borrado físico (DELETE)
+ * - Si tiene asignaciones activas → soft-delete (activo=false)
+ *
+ * La UI debe llamar primero a getEtiquetaUsageCount para mostrar
+ * candado vs papelera y el diálogo de confirmación adecuado.
+ */
+export async function deleteEtiqueta(id: string): Promise<ActionResult<{ archived: boolean }>> {
   const etiqueta = await etiquetaRepository.findById(id);
   if (!etiqueta) return { ok: false, error: "Etiqueta no encontrada" };
   if (etiqueta.es_sistema) return { ok: false, error: "Las etiquetas de sistema no se pueden borrar" };
+
   try {
-    await etiquetaRepository.delete(id);
+    const usages = await etiquetaRepository.countUsages(id);
+
+    if (usages === 0) {
+      // Sin vínculos — borrado físico seguro
+      await etiquetaRepository.delete(id);
+      revalidatePath("/admin/taxonomia");
+      return { ok: true, data: { archived: false } };
+    }
+
+    // Tiene vínculos — soft-delete: ocultar del catálogo, preservar historial
+    await etiquetaRepository.archive(id);
+    revalidatePath("/admin/taxonomia");
+    return { ok: true, data: { archived: true } };
+  } catch {
+    return { ok: false, error: "Error al eliminar la etiqueta" };
+  }
+}
+
+/**
+ * Actualiza el parent_id de una etiqueta (Servicio → Departamento).
+ * Solo Admin. Las etiquetas de sistema no son editables.
+ */
+export async function updateEtiquetaParent(
+  etiquetaId: string,
+  parentId: string
+): Promise<ActionResult> {
+  const etiqueta = await etiquetaRepository.findById(etiquetaId);
+  if (!etiqueta) return { ok: false, error: "Etiqueta no encontrada" };
+  if (etiqueta.es_sistema) return { ok: false, error: "Las etiquetas de sistema no son editables" };
+  try {
+    await etiquetaRepository.update(etiquetaId, { parent: { connect: { id: parentId } } });
     revalidatePath("/admin/taxonomia");
     return { ok: true, data: undefined };
   } catch {
-    return { ok: false, error: "Error al borrar la etiqueta" };
+    return { ok: false, error: "Error al actualizar el departamento padre" };
+  }
+}
+
+/**
+ * Libera todas las etiquetas de contenido: pone es_sistema=false.
+ * Solo las 5 CategoriaEtiqueta son inmutables (hardcoded CAJONES_SALI).
+ * Las etiquetas individuales deben ser editables/borrables por el CEO.
+ * Idempotente — se puede llamar múltiples veces sin efecto.
+ */
+export async function liberateContentTags(): Promise<ActionResult<{ updated: number }>> {
+  try {
+    const result = await etiquetaRepository.bulkClearSistema();
+    revalidatePath("/admin/taxonomia");
+    return { ok: true, data: { updated: result } };
+  } catch {
+    return { ok: false, error: "Error al liberar etiquetas de sistema" };
   }
 }
 
