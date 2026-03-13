@@ -16,15 +16,17 @@
 // ============================================================================
 
 import { useState, useTransition } from "react";
-import { Plus, Tag, Folder, ChevronDown, ChevronRight, Check, X, Pencil, Lock, Trash2, FolderTree, Globe, Building2, AlertTriangle, ShieldAlert, Eye, EyeOff, RotateCcw, GripVertical } from "lucide-react";
+import { Plus, Tag, Folder, ChevronDown, ChevronRight, Check, X, Pencil, Lock, Trash2, FolderTree, Globe, Building2, AlertTriangle, ShieldAlert, Eye, EyeOff, RotateCcw, GripVertical, Shield } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   createEtiqueta,
   deleteEtiqueta,
+  getCategorias,
   getEtiquetaUsageCount,
   updateEtiqueta,
   updateBlueprint,
   updateEtiquetaScope,
+  updateEtiquetaSoloSuperAdmin,
   liberateContentTags,
   getCategoriasWithArchived,
   restoreEtiqueta,
@@ -109,6 +111,20 @@ export function TaxonomiaClient({ initialCategorias }: TaxonomiaClientProps) {
   // Detectar si hay etiquetas con es_sistema=true en contenido
   const hasSistemaContent = categorias.some((c) => c.etiquetas.some((e) => e.es_sistema));
 
+  /** Recarga categorías desde BD y reemplaza el estado local. */
+  async function reloadCategorias() {
+    const res = ghostMode
+      ? await getCategoriasWithArchived()
+      : await getCategorias();
+    if (res.ok) {
+      setCategorias(
+        (res.data as CategoriaConEtiquetas[])
+          .filter((c: CategoriaConEtiquetas) => CAJONES_VALIDOS.has(c.nombre))
+          .sort((a: CategoriaConEtiquetas, b: CategoriaConEtiquetas) => (ORDEN_VISUAL[a.nombre] ?? 99) - (ORDEN_VISUAL[b.nombre] ?? 99))
+      );
+    }
+  }
+
   function toggleExpand(id: string) {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -135,11 +151,6 @@ export function TaxonomiaClient({ initialCategorias }: TaxonomiaClientProps) {
           </button>
         </div>
       )}
-
-      <div className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-2.5 text-xs text-zinc-500">
-        <Lock className="h-3.5 w-3.5 shrink-0 text-zinc-600" />
-        Arquitectura de 5 cajones fijos. No se pueden crear ni eliminar categorias.
-      </div>
 
       {/* Botón de liberación: quita es_sistema de etiquetas de contenido */}
       {hasSistemaContent && !liberated && (
@@ -263,6 +274,7 @@ export function TaxonomiaClient({ initialCategorias }: TaxonomiaClientProps) {
                 )
               );
             }}
+            onReloadCategorias={reloadCategorias}
             setError={setError}
           />
           </div>
@@ -278,11 +290,13 @@ function BlueprintEditor({
   etiquetaId,
   initialBlueprint,
   onClose,
+  onReloadCategorias,
   setError,
 }: {
   etiquetaId: string;
   initialBlueprint: string[];
   onClose: () => void;
+  onReloadCategorias: () => Promise<void>;
   setError: (msg: string | null) => void;
 }) {
   const [folders, setFolders] = useState<string[]>(initialBlueprint);
@@ -305,6 +319,17 @@ function BlueprintEditor({
       const res = await updateBlueprint(etiquetaId, folders);
       if (!res.ok) { setError(res.error); return; }
       onClose();
+      await onReloadCategorias();
+    });
+  }
+
+  function clearBlueprint() {
+    startTransition(async () => {
+      const res = await updateBlueprint(etiquetaId, []);
+      if (!res.ok) { setError(res.error); return; }
+      setFolders([]);
+      onClose();
+      await onReloadCategorias();
     });
   }
 
@@ -350,15 +375,27 @@ function BlueprintEditor({
         </button>
       </div>
 
-      <div className="flex justify-end gap-2 pt-1">
-        <button onClick={onClose}
-          className="rounded border border-zinc-700 px-3 py-1 text-xs text-zinc-500 hover:text-zinc-300">
-          Cancelar
-        </button>
-        <button onClick={save} disabled={isPending}
-          className="rounded bg-amber-500 px-3 py-1 text-xs font-semibold text-black hover:bg-amber-400 disabled:opacity-50">
-          Guardar blueprint
-        </button>
+      <div className="flex items-center justify-between pt-1">
+        {/* Limpiar blueprint — modelo "Carpeta Unica" */}
+        {folders.length > 0 && (
+          <button onClick={clearBlueprint} disabled={isPending}
+            className="inline-flex items-center gap-1 rounded border border-red-800/40 px-2 py-1 text-[10px] text-red-400 transition-colors hover:bg-red-950/30 disabled:opacity-50"
+            title="Eliminar blueprint y usar estructura por defecto"
+          >
+            <Trash2 className="h-2.5 w-2.5" />
+            Limpiar blueprint
+          </button>
+        )}
+        <div className="flex gap-2 ml-auto">
+          <button onClick={onClose}
+            className="rounded border border-zinc-700 px-3 py-1 text-xs text-zinc-500 hover:text-zinc-300">
+            Cancelar
+          </button>
+          <button onClick={save} disabled={isPending}
+            className="rounded bg-amber-500 px-3 py-1 text-xs font-semibold text-black hover:bg-amber-400 disabled:opacity-50">
+            Guardar blueprint
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -455,6 +492,7 @@ function CategoriaCard({
   onEtiquetaCreated,
   onEtiquetaDeleted,
   onEtiquetaUpdated,
+  onReloadCategorias,
   setError,
 }: {
   cat: CategoriaConEtiquetas;
@@ -466,6 +504,7 @@ function CategoriaCard({
   onEtiquetaCreated: (e: Etiqueta) => void;
   onEtiquetaDeleted: (id: string) => void;
   onEtiquetaUpdated: (id: string, data: Partial<Etiqueta>) => void;
+  onReloadCategorias: () => Promise<void>;
   setError: (msg: string | null) => void;
 }) {
   const isServicio = cat.nombre === "Servicio";
@@ -598,6 +637,7 @@ function CategoriaCard({
         categoria_id: cat.id, es_sistema: false, activo: true,
         scope: "GLOBAL" as const, blueprint: null,
         parent_id: newParentId, es_expediente: newEsExpediente,
+        solo_super_admin: false,
         created_at: new Date(), updated_at: new Date(),
       });
       setNewName("");
@@ -761,6 +801,26 @@ function CategoriaCard({
             EXP
           </span>
         )}
+        {/* @Security-CISO: badge + toggle de confidencialidad */}
+        {catTipo === "CONSTRUCTOR" && e.solo_super_admin && (
+          <span
+            className="inline-flex items-center gap-0.5 rounded-sm bg-red-500/10 px-1 py-[1px] text-[8px] font-bold uppercase tracking-wider text-red-400/80"
+            title="Solo visible para SuperAdmin — invisible para Staff en Drive, clonación y visor"
+          >
+            <Shield className="h-2 w-2" />
+            CISO
+          </span>
+        )}
+        {/* Blueprint indicator — muestra cuantas subcarpetas tiene */}
+        {catTipo === "CONSTRUCTOR" && Array.isArray((e as Etiqueta & { blueprint?: unknown }).blueprint) && ((e as Etiqueta & { blueprint?: string[] }).blueprint ?? []).length > 0 && (
+          <span
+            className="inline-flex items-center gap-0.5 rounded-sm bg-amber-500/10 px-1 py-[1px] text-[8px] font-bold uppercase tracking-wider text-amber-500/70"
+            title={`Blueprint: ${((e as Etiqueta & { blueprint?: string[] }).blueprint ?? []).join(", ")}`}
+          >
+            <FolderTree className="h-2 w-2" />
+            {((e as Etiqueta & { blueprint?: string[] }).blueprint ?? []).length}
+          </span>
+        )}
         {/* Scope badge — clickable para editar */}
         {!e.es_sistema ? (
           <button
@@ -778,17 +838,42 @@ function CategoriaCard({
         )}
         {!e.es_sistema && (
           <>
-            {catTipo === "CONSTRUCTOR" && (
+            {catTipo === "CONSTRUCTOR" && (() => {
+              const hasBp = Array.isArray((e as Etiqueta & { blueprint?: unknown }).blueprint) && ((e as Etiqueta & { blueprint?: string[] }).blueprint ?? []).length > 0;
+              return (
               <button
                 onClick={() => { setBlueprintEditId(blueprintEditId === e.id ? null : e.id); setScopeEditId(null); }}
                 className={`ml-0.5 transition-opacity ${
                   blueprintEditId === e.id
                     ? "opacity-100 text-amber-500"
+                    : hasBp
+                    ? "opacity-70 text-amber-500/70 hover:opacity-100"
                     : "opacity-0 group-hover:opacity-70 hover:!opacity-100"
                 }`}
-                title="Editar blueprint de subcarpetas"
+                title={hasBp ? `Editar blueprint (${((e as Etiqueta & { blueprint?: string[] }).blueprint ?? []).length} subcarpetas)` : "Definir blueprint de subcarpetas"}
               >
                 <FolderTree className="h-2.5 w-2.5" />
+              </button>
+              );
+            })()}
+            {catTipo === "CONSTRUCTOR" && (
+              <button
+                onClick={() => {
+                  const next = !e.solo_super_admin;
+                  startTransition(async () => {
+                    const res = await updateEtiquetaSoloSuperAdmin(e.id, next);
+                    if (!res.ok) { setError(res.error); return; }
+                    onEtiquetaUpdated(e.id, { solo_super_admin: next });
+                  });
+                }}
+                className={`ml-0.5 transition-opacity ${
+                  e.solo_super_admin
+                    ? "opacity-70 text-red-400 hover:opacity-100"
+                    : "opacity-0 group-hover:opacity-70 hover:!opacity-100 text-zinc-500"
+                }`}
+                title={e.solo_super_admin ? "Quitar restricción CISO (visible para todos)" : "Restringir a SuperAdmin (invisible para Staff)"}
+              >
+                <Shield className="h-2.5 w-2.5" />
               </button>
             )}
             <button
@@ -925,6 +1010,7 @@ function CategoriaCard({
                 etiquetaId={blueprintEditId}
                 initialBlueprint={Array.isArray(bp) ? bp : []}
                 onClose={() => setBlueprintEditId(null)}
+                onReloadCategorias={onReloadCategorias}
                 setError={setError}
               />
             );

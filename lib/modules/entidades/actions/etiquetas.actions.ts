@@ -57,7 +57,8 @@ export async function getCategorias() {
     // PURGA SALI: Solo las 5 categorías válidas
     const data = all.filter((c) => CAJONES_SALI.has(c.nombre));
     return { ok: true, data } as const;
-  } catch {
+  } catch (e) {
+    console.error("[getCategorias] Error:", e);
     return { ok: false, error: "Error al cargar categorías" } as const;
   }
 }
@@ -273,6 +274,25 @@ export async function updateEtiquetaExpediente(
 }
 
 /**
+ * @Security-CISO — Marca una etiqueta Constructor como confidencial.
+ * Solo SuperAdmin. Las etiquetas marcadas son INVISIBLES para Staff.
+ */
+export async function updateEtiquetaSoloSuperAdmin(
+  etiquetaId: string,
+  soloSuperAdmin: boolean
+): Promise<ActionResult> {
+  const etiqueta = await etiquetaRepository.findById(etiquetaId);
+  if (!etiqueta) return { ok: false, error: "Etiqueta no encontrada" };
+  try {
+    await etiquetaRepository.update(etiquetaId, { solo_super_admin: soloSuperAdmin });
+    revalidatePath("/admin/taxonomia");
+    return { ok: true, data: undefined };
+  } catch {
+    return { ok: false, error: "Error al actualizar restricción de seguridad" };
+  }
+}
+
+/**
  * Restaura una etiqueta archivada (activo=false → activo=true).
  * Solo Admin. Permite recuperar etiquetas que fueron soft-deleted.
  */
@@ -363,7 +383,8 @@ export async function updateBlueprint(
 
   try {
     await etiquetaRepository.update(etiquetaId, { blueprint });
-    revalidatePath("/admin/taxonomia");
+    // No revalidatePath aquí — el cliente recarga manualmente via reloadCategorias
+    // para evitar race condition entre RSC refetch y estado local
     return { ok: true, data: undefined };
   } catch {
     return { ok: false, error: "Error al guardar el blueprint" };
@@ -402,6 +423,24 @@ export async function asignarEtiqueta(
 ): Promise<ActionResult> {
   try {
     await etiquetaAsignadaRepository.assign(etiqueta_id, entidad_id, entidad_tipo, asignado_por);
+
+    // ── Blueprint Trigger Detection (Point 0 — Fase 0: solo log) ──────────
+    // Detecta si la etiqueta asignada es Constructor o Año temporal.
+    // En Fase 4+ esto disparará la creación real de carpetas en Drive.
+    if (entidad_tipo === "CONTACTO") {
+      try {
+        const etiqueta = await etiquetaRepository.findById(etiqueta_id);
+        if (etiqueta) {
+          const { shouldTriggerBlueprint } = await import("@/lib/services/blueprintTrigger.service");
+          const catName = etiqueta.categoria?.nombre ?? "";
+          shouldTriggerBlueprint(catName, etiqueta.nombre);
+        }
+      } catch (triggerErr) {
+        // Non-blocking: trigger detection failure must not break assignment
+        console.error("[BlueprintTrigger] Error en deteccion:", triggerErr);
+      }
+    }
+
     revalidatePath(`/contactos/${entidad_id}`);
     return { ok: true, data: undefined };
   } catch {
@@ -459,5 +498,88 @@ export async function getEtiquetasByTenant(
     return { ok: true, data: sorted } as const;
   } catch {
     return { ok: false, error: "Error al cargar etiquetas" } as const;
+  }
+}
+
+// ─── Copiar Estructura de Otro Contacto (Point 3) ──────────────────────────
+
+export type CloneStructureResult =
+  | { ok: true; cloned: number; skipped: number }
+  | { ok: false; error: string };
+
+/**
+ * Copia las etiquetas asignadas del contacto origen al destino.
+ * Deduplicación: no clona etiquetas que el destino ya tiene.
+ *
+ * @Security-CISO (8.12): Aplica exclusión directa + herencia.
+ *   - Etiquetas con solo_super_admin=true → invisibles.
+ *   - Servicios cuyo Departamento padre es solo_super_admin=true → invisibles.
+ */
+export async function cloneStructureFromContacto(
+  sourceContactoId: string,
+  targetContactoId: string,
+  isSuperAdmin = false
+): Promise<CloneStructureResult> {
+  try {
+    // 1. Obtener etiquetas activas del origen
+    const sourceAssignments = await etiquetaAsignadaRepository.findByEntidad(
+      sourceContactoId,
+      "CONTACTO"
+    );
+
+    if (sourceAssignments.length === 0) {
+      return { ok: false, error: "El contacto origen no tiene etiquetas asignadas" };
+    }
+
+    // 2. @Security-CISO: exclusión directa + herencia de departamento padre
+    let visibleAssignments = sourceAssignments;
+    if (!isSuperAdmin) {
+      // Primero: IDs de departamentos restringidos
+      const restrictedDeptIds = new Set<string>();
+      for (const a of sourceAssignments) {
+        if (a.etiqueta.categoria?.nombre === "Departamento" && a.etiqueta.solo_super_admin) {
+          restrictedDeptIds.add(a.etiqueta_id);
+        }
+      }
+      // Filtrar: exclusión directa + herencia
+      visibleAssignments = sourceAssignments.filter((a) => {
+        if (a.etiqueta.solo_super_admin) return false;
+        if (a.etiqueta.parent_id && restrictedDeptIds.has(a.etiqueta.parent_id)) return false;
+        return true;
+      });
+    }
+
+    if (visibleAssignments.length === 0) {
+      return { ok: false, error: "El contacto origen no tiene etiquetas visibles para tu rol" };
+    }
+
+    // 3. Obtener etiquetas activas del destino (para deduplicar)
+    const targetAssignments = await etiquetaAsignadaRepository.findByEntidad(
+      targetContactoId,
+      "CONTACTO"
+    );
+    const targetEtiquetaIds = new Set(targetAssignments.map((a) => a.etiqueta_id));
+
+    // 4. Clonar solo las que no existen en el destino
+    let cloned = 0;
+    let skipped = 0;
+
+    for (const assignment of visibleAssignments) {
+      if (targetEtiquetaIds.has(assignment.etiqueta_id)) {
+        skipped++;
+        continue;
+      }
+      await etiquetaAsignadaRepository.assign(
+        assignment.etiqueta_id,
+        targetContactoId,
+        "CONTACTO"
+      );
+      cloned++;
+    }
+
+    revalidatePath(`/contactos/${targetContactoId}`);
+    return { ok: true, cloned, skipped };
+  } catch {
+    return { ok: false, error: "Error al copiar la estructura" };
   }
 }

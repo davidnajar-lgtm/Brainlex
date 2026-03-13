@@ -23,7 +23,7 @@ export default async function TaxonomiaPage() {
       <div>
         <h1 className="text-lg font-semibold text-zinc-100">Taxonomia SALI</h1>
         <p className="mt-0.5 text-sm text-zinc-500">
-          5 cajones fijos: Identidad, Departamento, Servicio, Estado e Inteligencia. Las etiquetas de usuario son editables por el administrador.
+          Identidad, Departamento, Servicio, Estado e Inteligencia. Las etiquetas de usuario son editables por el administrador.
         </p>
       </div>
 
@@ -39,7 +39,7 @@ export default async function TaxonomiaPage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
         </svg>
         <p className="text-xs font-semibold" style={{ color: "var(--alert-warning-text)" }}>
-          Los 5 cajones son fijos —{" "}
+          La estructura es fija —{" "}
           <span className="font-normal" style={{ color: "var(--alert-warning-text-muted)" }}>
             todas las etiquetas son editables y borrables. Las de tipo Departamento y Servicio generan carpetas en Drive.
           </span>

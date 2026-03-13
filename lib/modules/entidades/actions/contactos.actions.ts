@@ -94,11 +94,14 @@ function extractFieldErrors(
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
 /**
- * Obtiene todos los Contactos ACTIVOS, ordenados por fecha de creación.
+ * @Scope-Guard — Obtiene Contactos ACTIVOS filtrados por tenant.
+ *
+ * companyId = "LX" | "LW" → filtra vía ContactoCompanyLink
+ * companyId = null         → bypass SuperAdmin (ve todos los contactos del Holding)
  */
-export async function getContactos(): Promise<GetContactosResult> {
+export async function getContactos(companyId?: string | null): Promise<GetContactosResult> {
   try {
-    const data = await contactoRepository.findAll();
+    const data = await contactoRepository.findByCompany(companyId ?? null);
     return { ok: true, data };
   } catch (err) {
     const message =
@@ -112,10 +115,14 @@ export async function getContactos(): Promise<GetContactosResult> {
  * Crea un Contacto nuevo con su link de tenant.
  * Valida con Zod antes de persistir — devuelve fieldErrors por campo si falla.
  * redirect() se llama FUERA del try/catch (Next.js lo implementa con throw).
+ *
+ * @Scope-Guard — companyId determina la matriz a la que se vincula el contacto.
+ * Si no se pasa, se usa ensureDefaultSociedad() como fallback.
  */
 export async function createContacto(
   input: CreateContactoInput,
-  initialAddress?: InlineAddressData
+  initialAddress?: InlineAddressData,
+  companyId?: string
 ): Promise<CreateContactoResult> {
   // ── Validación Zod ─────────────────────────────────────────────────────────
   const parsed = ContactoFormSchema.safeParse(input);
@@ -136,8 +143,6 @@ export async function createContacto(
       : data.fiscal_id.trim().toUpperCase();
 
   // ── Detección "Limbo Legal": ¿existe este NIF en QUARANTINE? ───────────────
-  // Si el NIF ya existe pero en cuarentena, devolvemos conflictType para que
-  // la UI ofrezca la resurrección en lugar de un error de duplicado genérico.
   if (fiscal_id && data.fiscal_id_tipo !== FiscalIdTipo.SIN_REGISTRO) {
     const existing = await contactoRepository.findByFiscalIdAllStatuses(
       fiscal_id,
@@ -157,6 +162,35 @@ export async function createContacto(
         contactoName,
       };
     }
+
+    // ── Detección inter-matriz: ¿existe este NIF en OTRA matriz? ────────────
+    if (existing?.status === "ACTIVE") {
+      const targetCompany = companyId || await contactoRepository.ensureDefaultSociedad();
+      const withLinks = await contactoRepository.findByFiscalIdWithCompanyLinks(
+        fiscal_id,
+        data.fiscal_id_tipo
+      );
+      if (withLinks) {
+        const alreadyInTarget = withLinks.company_links.some(
+          (l) => l.company_id === targetCompany
+        );
+        if (!alreadyInTarget) {
+          const contactoName =
+            withLinks.razon_social ||
+            [withLinks.nombre, withLinks.apellido1].filter(Boolean).join(" ") ||
+            withLinks.fiscal_id ||
+            "Contacto existente";
+          const matrices = withLinks.company_links.map((l) => l.company_id).join(", ");
+          return {
+            ok:                   false,
+            error:                `Contacto detectado en el Holding (${matrices}). ¿Deseas importarlo a esta matriz?`,
+            conflictType:         "CROSS_MATRIX" as const,
+            quarantineContactoId: withLinks.id,
+            contactoName,
+          };
+        }
+      }
+    }
   }
 
   // ── Persistencia atómica ────────────────────────────────────────────────────
@@ -165,7 +199,7 @@ export async function createContacto(
   // Antes, dos llamadas Prisma separadas podían crear un Contacto huérfano
   // si la creación de la Direccion lanzaba un error.
   try {
-    const companyId = await contactoRepository.ensureDefaultSociedad();
+    const resolvedCompanyId = companyId || await contactoRepository.ensureDefaultSociedad();
 
     await prisma.$transaction(async (tx) => {
       // 1. Crear Contacto + company_link en una sola operación anidada
@@ -191,7 +225,7 @@ export async function createContacto(
           linkedin_url:    data.linkedin_url?.trim().toLowerCase() || null,
           canal_preferido: data.canal_preferido         ?? "EMAIL",
           company_links: {
-            create: [{ company_id: companyId }],
+            create: [{ company_id: resolvedCompanyId }],
           },
         },
       });
@@ -1011,6 +1045,42 @@ export async function deleteContacto(
         ? err.message
         : "Error desconocido al procesar la solicitud de borrado.";
     console.error("[deleteContacto]", message);
+    return { ok: false, error: message };
+  }
+}
+
+// ─── vincularContactoAMatriz ─────────────────────────────────────────────────
+
+export type VincularResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+/**
+ * @Scope-Guard — Vincula un Contacto existente a una nueva matriz (tenant).
+ *
+ * Usado cuando se detecta un duplicado inter-matriz: el contacto ya existe en
+ * otra sociedad y el usuario confirma "Importar a esta matriz".
+ *
+ * Idempotente: el @@unique([contacto_id, company_id]) previene duplicados.
+ */
+export async function vincularContactoAMatriz(
+  contactoId: string,
+  companyId: string
+): Promise<VincularResult> {
+  try {
+    const contacto = await contactoRepository.findById(contactoId);
+    if (!contacto) return { ok: false, error: `Contacto no encontrado (${contactoId}).` };
+    if (contacto.status !== "ACTIVE") {
+      return { ok: false, error: "Solo se pueden vincular contactos en estado ACTIVE." };
+    }
+
+    await contactoRepository.linkToCompany(contactoId, companyId);
+    revalidatePath("/contactos", "layout");
+    return { ok: true };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Error al vincular contacto a la matriz.";
+    console.error("[vincularContactoAMatriz]", message);
     return { ok: false, error: message };
   }
 }

@@ -71,6 +71,14 @@ enum EtiquetaScope {
   LAWTECH
 }
 
+/// Tipo de carpeta en la Bóveda documental del contacto.
+///   INTELIGENTE → generada automáticamente desde Etiqueta Constructor (Servicio/Departamento)
+///   MANUAL      → creada libremente por el usuario (huérfana de etiqueta)
+enum CarpetaTipo {
+  INTELIGENTE
+  MANUAL
+}
+
 /// Acciones registradas en el AuditLog inmutable.
 enum AuditAction {
   CREATE
@@ -194,6 +202,7 @@ model Contacto {
   canales            CanalComunicacion[]
   relaciones_origen  Relacion[] @relation("RelacionOrigen")
   relaciones_destino Relacion[] @relation("RelacionDestino")
+  carpetas           Carpeta[]
 
   @@unique([fiscal_id, fiscal_id_tipo]) /// Identifica única — NULL en fiscal_id excluido de la restricción
   @@index([status])
@@ -347,6 +356,13 @@ model Relacion {
   tipo_relacion_id String
   notas            String?
 
+  /// Cargo o rol que el contacto origen tiene respecto al destino (ej: "Director Financiero")
+  cargo                String?
+  /// Departamento interno del contacto dentro de la organización destino
+  departamento_interno String?
+  /// ID de la Dirección (sede) vinculada a esta relación (FK lógica a Direccion.id)
+  sede_vinculada_id    String?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -395,9 +411,10 @@ model Etiqueta {
   es_sistema   Boolean       @default(false)     /// true = predefinida, no eliminable
   activo       Boolean       @default(true)      /// false = archivada (soft-delete), oculta en catálogo pero preserva vínculos
   scope        EtiquetaScope @default(GLOBAL)    /// @Scope-Guard: visibilidad por tenant
-  blueprint      Json?                             /// Estructura de subcarpetas para etiquetas Constructor (Servicio/Departamento)
-  parent_id      String?                           /// Jerarquía: Servicio → Departamento padre (obligatorio para Servicio)
-  es_expediente  Boolean       @default(false)     /// true = al asignar, abre modal de Nuevo Expediente
+  blueprint          Json?                             /// Estructura de subcarpetas para etiquetas Constructor (Servicio/Departamento)
+  parent_id          String?                           /// Jerarquía: Servicio → Departamento padre (obligatorio para Servicio)
+  es_expediente      Boolean       @default(false)     /// true = al asignar, abre modal de Nuevo Expediente
+  solo_super_admin   Boolean       @default(false)     /// @Security-CISO: true = invisible para Staff en Drive, clonación y visor
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -406,6 +423,7 @@ model Etiqueta {
   parent       Etiqueta?         @relation("EtiquetaHierarchy", fields: [parent_id], references: [id])
   children     Etiqueta[]        @relation("EtiquetaHierarchy")
   asignaciones EtiquetaAsignada[]
+  carpetas     Carpeta[]
 
   @@unique([nombre, categoria_id])
   @@index([categoria_id])
@@ -483,4 +501,62 @@ model AuditLog {
   @@index([created_at])
   @@index([hash_identificador])
   @@map("audit_logs")
+}
+
+// ============================================================================
+// Carpeta — Nodo del árbol documental (Bóveda) del Contacto
+//
+// Dos tipos:
+//   INTELIGENTE — vinculada a una Etiqueta Constructor (Departamento/Servicio).
+//                 Se genera automáticamente al asignar la etiqueta al contacto.
+//                 Sus subcarpetas de blueprint son inmutables (es_blueprint=true).
+//   MANUAL      — creada libremente por el usuario. Sin vínculo a etiqueta.
+//
+// Jerarquía: self-referential (parent_id) para nesting ilimitado.
+// ============================================================================
+model Carpeta {
+  id          String      @id @default(cuid())
+  nombre      String
+  tipo        CarpetaTipo @default(MANUAL)
+  contacto_id String
+  parent_id   String?                         /// Self-ref: subcarpeta de otra carpeta
+  etiqueta_id String?                         /// Solo INTELIGENTE: FK a la Etiqueta Constructor origen
+  es_blueprint Boolean    @default(false)     /// true = subcarpeta de blueprint, inmutable (no mover/renombrar/borrar)
+  orden       Int         @default(0)         /// Ordenación manual dentro del mismo nivel
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  contacto Contacto  @relation(fields: [contacto_id], references: [id], onDelete: Cascade)
+  parent   Carpeta?  @relation("CarpetaHierarchy", fields: [parent_id], references: [id])
+  children Carpeta[] @relation("CarpetaHierarchy")
+  etiqueta Etiqueta? @relation(fields: [etiqueta_id], references: [id])
+  archivos Archivo[]
+
+  @@index([contacto_id])
+  @@index([parent_id])
+  @@index([etiqueta_id])
+  @@map("carpetas")
+}
+
+// ============================================================================
+// Archivo — Referencia a un archivo dentro de una Carpeta
+//
+// Fase actual: metadatos locales. drive_file_id se vinculará en Fase 4+
+// cuando se active la integración con Google Drive API.
+// ============================================================================
+model Archivo {
+  id           String  @id @default(cuid())
+  nombre       String
+  carpeta_id   String
+  mime_type    String?
+  size_bytes   Int?                           /// Tamaño en bytes (informativo)
+  drive_file_id String?                       /// Google Drive file ID (futuro)
+
+  created_at DateTime @default(now())
+
+  carpeta Carpeta @relation(fields: [carpeta_id], references: [id], onDelete: Cascade)
+
+  @@index([carpeta_id])
+  @@map("archivos")
 }

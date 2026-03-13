@@ -86,10 +86,12 @@ export const etiquetaRepository = {
   },
 
   /**
-   * @Scope-Guard — Devuelve etiquetas ACTIVAS visibles para un tenant concreto.
+   * @Scope-Guard + @Security-CISO — Devuelve etiquetas ACTIVAS visibles para un tenant/rol.
    *
-   * Regla: activo=true AND (scope == GLOBAL || scope == tenantScope)
-   * Bypass CEO: si isSuperAdmin=true, devuelve todos los scopes (pero siempre activo=true).
+   * Regla Scope:    activo=true AND (scope == GLOBAL || scope == tenantScope)
+   * Regla CISO:     si isSuperAdmin=false, excluye solo_super_admin=true (Prisma-level)
+   * Regla Herencia: si isSuperAdmin=false, excluye Servicios cuyo parent es solo_super_admin=true
+   * Bypass CEO:     si isSuperAdmin=true, devuelve todos los scopes y todas las restricciones.
    */
   async findByTenant(
     tenantScope: EtiquetaScope,
@@ -97,7 +99,16 @@ export const etiquetaRepository = {
   ): Promise<EtiquetaConCategoria[]> {
     const where: Prisma.EtiquetaWhereInput = isSuperAdmin
       ? { activo: true }
-      : { activo: true, scope: { in: ["GLOBAL", tenantScope] } };
+      : {
+          activo: true,
+          scope: { in: ["GLOBAL", tenantScope] },
+          solo_super_admin: false,
+          // Herencia: excluir servicios cuyo departamento padre es restringido
+          OR: [
+            { parent_id: null }, // Sin padre → no hereda restricción
+            { parent: { solo_super_admin: false } }, // Padre público → visible
+          ],
+        };
 
     return prisma.etiqueta.findMany({
       where,

@@ -14,11 +14,12 @@ import { useState, useMemo, useEffect, useTransition } from "react";
 import Link from "next/link";
 import { Contacto, ContactoStatus, ContactoTipo } from "@prisma/client";
 import { DeleteButton } from "./_modules/shared/DeleteButton";
-import { Shield, Search, Archive } from "lucide-react";
+import { Shield, Search, Archive, Eye } from "lucide-react";
 import { DataHealthCircle } from "./_modules/shared/DataHealthCircle";
 import { calcDataHealth } from "@/lib/utils/dataHealth";
-import { searchInQuarantine, type QuarantineHit } from "@/lib/modules/entidades/actions/contactos.actions";
+import { getContactos, searchInQuarantine, type QuarantineHit } from "@/lib/modules/entidades/actions/contactos.actions";
 import { ExportDropdown } from "./_modules/listado/ExportDropdown";
+import { useTenant } from "@/lib/context/TenantContext";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -111,7 +112,7 @@ function ContactosTable({ contactos }: { contactos: Contacto[] }) {
   return (
     <div className="overflow-hidden rounded-xl border border-zinc-800">
       {/* Cabecera */}
-      <div className="grid grid-cols-[1fr_9rem_6rem_6rem_2rem_4rem] md:grid-cols-[1fr_9rem_15rem_9rem_6rem_6rem_2rem_4rem] gap-x-4 border-b border-zinc-800 bg-zinc-900 px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+      <div className="grid grid-cols-[1fr_9rem_5rem_5rem_2rem_3.5rem] md:grid-cols-[1fr_9rem_12rem_8rem_5rem_5rem_2rem_3.5rem] gap-x-2 border-b border-zinc-800 bg-zinc-900 px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
         <span>Nombre / Razón Social</span>
         <span>NIF</span>
         <span className="hidden md:block">Email</span>
@@ -151,7 +152,7 @@ function ContactosTable({ contactos }: { contactos: Contacto[] }) {
                 aria-label={`Abrir ficha de ${getDisplayName(c)}`}
               />
 
-              <div className="relative grid grid-cols-[1fr_9rem_6rem_6rem_2rem_4rem] md:grid-cols-[1fr_9rem_15rem_9rem_6rem_6rem_2rem_4rem] items-center gap-x-4 px-5 py-3.5">
+              <div className="relative grid grid-cols-[1fr_9rem_5rem_5rem_2rem_3.5rem] md:grid-cols-[1fr_9rem_12rem_8rem_5rem_5rem_2rem_3.5rem] items-center gap-x-2 px-5 py-3.5">
                 {/* Nombre */}
                 <div className="flex min-w-0 items-center gap-2">
                   {isMatriz && (
@@ -190,14 +191,14 @@ function ContactosTable({ contactos }: { contactos: Contacto[] }) {
 
                 {/* Health */}
                 <div className="flex justify-center">
-                  <DataHealthCircle score={health} size={28} strokeWidth={3} showLabel={false} />
+                  <DataHealthCircle score={health} size={24} strokeWidth={3} showLabel={false} />
                 </div>
 
                 {/* Acciones — z-20, por encima del stretched link */}
-                <div className="relative z-20 flex items-center justify-end gap-3 opacity-0 transition-opacity group-hover:opacity-100">
+                <div className="relative z-20 flex items-center justify-end gap-1.5 opacity-0 transition-opacity group-hover:opacity-100">
                   <a
                     href={`/contactos/${c.id}/editar`}
-                    className="text-xs font-medium text-zinc-500 transition-colors hover:text-orange-400"
+                    className="whitespace-nowrap text-[11px] font-medium text-zinc-500 transition-colors hover:text-orange-400"
                   >
                     Editar
                   </a>
@@ -214,9 +215,26 @@ function ContactosTable({ contactos }: { contactos: Contacto[] }) {
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
-export function ContactosClient({ contactos }: { contactos: Contacto[] }) {
+export function ContactosClient({ contactos: initialContactos }: { contactos: Contacto[] }) {
+  const { tenant, isSuperAdmin } = useTenant();
   const [tab,   setTab]   = useState<Tab>("todos");
   const [query, setQuery] = useState("");
+
+  // ── @Scope-Guard: filtrado por tenant activo ──────────────────────────────
+  // SSR carga todos los contactos (sin tenant). El cliente re-fetcha filtrado.
+  const [contactos, setContactos] = useState<Contacto[]>(initialContactos);
+  const [showAll, setShowAll]     = useState(false); // bypass CEO
+  const [isLoading, startTransition] = useTransition();
+
+  const effectiveTenantId = showAll ? null : tenant.id;
+
+  // Re-fetch cuando cambia el tenant o el toggle "Ver Holding"
+  useEffect(() => {
+    startTransition(async () => {
+      const result = await getContactos(effectiveTenantId);
+      if (result.ok) setContactos(result.data);
+    });
+  }, [effectiveTenantId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Visión de Rayos X: búsqueda en cuarentena ─────────────────────────────
   const [quarantineHit,  setQuarantineHit]  = useState<QuarantineHit | null>(null);
@@ -329,25 +347,45 @@ export function ContactosClient({ contactos }: { contactos: Contacto[] }) {
           })}
         </div>
 
-        {/* Buscador */}
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-600" />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar por nombre, NIF o email…"
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 py-1.5 pl-8 pr-3 text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-orange-500/60 focus:ring-1 focus:ring-orange-500/30 sm:w-64"
-          />
+        <div className="flex items-center gap-2">
+          {/* Bypass CEO: ver todos los contactos del Holding */}
+          {isSuperAdmin && (
+            <button
+              onClick={() => setShowAll((v) => !v)}
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors ${
+                showAll
+                  ? "bg-purple-500/20 text-purple-300 ring-1 ring-purple-500/30"
+                  : "text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800"
+              }`}
+              title={showAll ? "Mostrando todo el Holding" : `Filtrado por ${tenant.nombre}`}
+            >
+              <Eye className="h-3 w-3" />
+              {showAll ? "Holding" : tenant.shortLabel}
+            </button>
+          )}
+
+          {/* Buscador */}
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-600" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar por nombre, NIF o email…"
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-900 py-1.5 pl-8 pr-3 text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-orange-500/60 focus:ring-1 focus:ring-orange-500/30 sm:w-64"
+            />
+          </div>
         </div>
       </div>
 
       {/* Contador + Acciones de exportación */}
       <div className="flex items-center justify-between">
         <p className="text-xs text-zinc-600">
+          {isLoading && <span className="mr-1 animate-pulse">Cargando…</span>}
           {filtered.length} contacto{filtered.length !== 1 ? "s" : ""}
           {query.trim() ? ` · "${query.trim()}"` : ""}
           {tab !== "todos" ? ` en ${TABS.find(t => t.key === tab)?.label}` : ""}
+          {!showAll && <span className="ml-1 text-zinc-700">· {tenant.shortLabel}</span>}
         </p>
         <ExportDropdown emails={emails} count={filtered.length} />
       </div>

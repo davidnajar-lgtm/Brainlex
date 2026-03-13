@@ -691,7 +691,7 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
       <div className="w-[30%] shrink-0 flex flex-col overflow-hidden">
         <div className="px-3 py-2 border-b border-zinc-800 shrink-0 flex items-center justify-between">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-            Taxonomia · 5 cajones
+            Taxonomia
           </p>
           <Link
             href="/admin/taxonomia"

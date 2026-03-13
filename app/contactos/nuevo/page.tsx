@@ -18,8 +18,9 @@ import { CustomPhoneInput } from "@/components/ui/CustomPhoneInput";
 import { SociedadCombobox } from "@/app/contactos/_modules/shared/SociedadCombobox";
 import { CompanyAutocompleteInput } from "@/app/contactos/_modules/shared/CompanyAutocompleteInput";
 import type { DetectedAddress } from "@/app/contactos/_modules/shared/CompanyAutocompleteInput";
-import { createContacto, resurrectionRestoreContacto } from "@/lib/modules/entidades/actions/contactos.actions";
+import { createContacto, resurrectionRestoreContacto, vincularContactoAMatriz } from "@/lib/modules/entidades/actions/contactos.actions";
 import type { InlineAddressData } from "@/lib/modules/entidades/actions/contactos.actions";
+import { useTenant } from "@/lib/context/TenantContext";
 import type {
   CreateContactoInput,
   ContactoFieldErrors,
@@ -127,6 +128,9 @@ export default function NuevoContactoPage() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<ContactoFieldErrors>({});
 
+  // — Tenant activo —
+  const { tenant } = useTenant();
+
   // — Resurrección: NIF detectado en QUARANTINE —
   type ResurrectionConflict = {
     contactoId: string;
@@ -136,6 +140,15 @@ export default function NuevoContactoPage() {
   };
   const [resurrectionConflict, setResurrectionConflict] =
     useState<ResurrectionConflict | null>(null);
+
+  // — Vínculo inter-matriz: NIF detectado en OTRA matriz —
+  type CrossMatrixConflict = {
+    contactoId: string;
+    contactoName: string;
+    message: string;
+  };
+  const [crossMatrixConflict, setCrossMatrixConflict] =
+    useState<CrossMatrixConflict | null>(null);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -212,7 +225,7 @@ export default function NuevoContactoPage() {
       : undefined;
 
     startTransition(async () => {
-      const result = await createContacto(input, addressPayload);
+      const result = await createContacto(input, addressPayload, tenant.id);
       if (result && !result.ok) {
         if (result.conflictType === "QUARANTINE_RESURRECTION") {
           setResurrectionConflict({
@@ -220,6 +233,13 @@ export default function NuevoContactoPage() {
             contactoName: result.contactoName,
             pendingInput:   input,
             pendingAddress: addressPayload,
+          });
+          setError(null);
+        } else if (result.conflictType === "CROSS_MATRIX") {
+          setCrossMatrixConflict({
+            contactoId:   result.quarantineContactoId,
+            contactoName: result.contactoName,
+            message:      result.error,
           });
           setError(null);
         } else {
@@ -303,6 +323,56 @@ export default function NuevoContactoPage() {
                 <button
                   type="button"
                   onClick={() => setResurrectionConflict(null)}
+                  className="rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:text-zinc-200"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Vínculo Inter-Matriz ── */}
+      {crossMatrixConflict && (
+        <div className="rounded-xl border border-purple-500/40 bg-purple-950/30 p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-purple-400" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-purple-300">
+                Contacto detectado en el Holding
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-purple-400/80">
+                <span className="font-semibold text-purple-300">{crossMatrixConflict.contactoName}</span>{" "}
+                ya existe en otra matriz del Holding. Puedes importarlo a{" "}
+                <span className="font-semibold text-purple-300">{tenant.nombre}</span>{" "}
+                sin duplicar el registro.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => {
+                    startTransition(async () => {
+                      const res = await vincularContactoAMatriz(
+                        crossMatrixConflict.contactoId,
+                        tenant.id
+                      );
+                      if (res.ok) {
+                        window.location.href = `/contactos/${crossMatrixConflict.contactoId}`;
+                      } else {
+                        setError(res.error);
+                        setCrossMatrixConflict(null);
+                      }
+                    });
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg bg-purple-500/20 px-3 py-1.5 text-xs font-semibold text-purple-300 transition-colors hover:bg-purple-500/30 disabled:opacity-50"
+                >
+                  {isPending ? "Importando…" : `Importar a ${tenant.shortLabel}`}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCrossMatrixConflict(null)}
                   className="rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:text-zinc-200"
                 >
                   Cancelar

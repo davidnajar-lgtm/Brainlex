@@ -17,6 +17,10 @@ export type RelacionCompleta = Relacion & {
   tipo_relacion: TipoRelacion;
   origen:        Pick<Contacto, "id" | "nombre" | "apellido1" | "razon_social" | "tipo">;
   destino:       Pick<Contacto, "id" | "nombre" | "apellido1" | "razon_social" | "tipo">;
+  /** Campos extendidos de Ecosistema (pueden ser null) */
+  cargo?:                string | null;
+  departamento_interno?: string | null;
+  sede_vinculada_id?:    string | null;
 };
 
 // ─── TipoRelacion ─────────────────────────────────────────────────────────────
@@ -88,16 +92,24 @@ export const relacionRepository = {
   },
 
   async create(data: {
-    origen_id:        string;
-    destino_id:       string;
-    tipo_relacion_id: string;
-    notas?:           string;
+    origen_id:             string;
+    destino_id:            string;
+    tipo_relacion_id:      string;
+    notas?:                string;
+    cargo?:                string;
+    departamento_interno?: string;
+    sede_vinculada_id?:    string;
   }): Promise<Relacion> {
     return prisma.relacion.create({ data });
   },
 
-  async update(id: string, notas: string | null): Promise<Relacion> {
-    return prisma.relacion.update({ where: { id }, data: { notas } });
+  async update(id: string, data: {
+    notas?:                string | null;
+    cargo?:                string | null;
+    departamento_interno?: string | null;
+    sede_vinculada_id?:    string | null;
+  }): Promise<Relacion> {
+    return prisma.relacion.update({ where: { id }, data });
   },
 
   async delete(id: string): Promise<void> {

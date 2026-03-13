@@ -13,6 +13,8 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { ContactoStatus, ContactoTipo } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
 import {
   tipoRelacionRepository,
   relacionRepository,
@@ -28,10 +30,13 @@ const TipoRelacionSchema = z.object({
 });
 
 const RelacionSchema = z.object({
-  origen_id:        z.string().cuid(),
-  destino_id:       z.string().cuid(),
-  tipo_relacion_id: z.string().cuid(),
-  notas:            z.string().max(500).optional(),
+  origen_id:             z.string().cuid(),
+  destino_id:            z.string().cuid(),
+  tipo_relacion_id:      z.string().cuid(),
+  notas:                 z.string().max(500).optional(),
+  cargo:                 z.string().max(120).optional(),
+  departamento_interno:  z.string().max(120).optional(),
+  sede_vinculada_id:     z.string().cuid().optional(),
 });
 
 // ─── Tipos de retorno ─────────────────────────────────────────────────────────
@@ -136,10 +141,13 @@ export async function getRelacionesDeContacto(contactoId: string) {
 }
 
 export async function createRelacion(input: {
-  origen_id:        string;
-  destino_id:       string;
-  tipo_relacion_id: string;
-  notas?:           string;
+  origen_id:             string;
+  destino_id:            string;
+  tipo_relacion_id:      string;
+  notas?:                string;
+  cargo?:                string;
+  departamento_interno?: string;
+  sede_vinculada_id?:    string;
 }): Promise<ActionResult<{ id: string }>> {
   const parsed = RelacionSchema.safeParse(input);
   if (!parsed.success) {
@@ -171,5 +179,80 @@ export async function deleteRelacion(
     return { ok: true, data: undefined };
   } catch {
     return { ok: false, error: "Error al borrar la relación" };
+  }
+}
+
+// ─── Búsqueda de Contactos para Picker ──────────────────────────────────────
+
+export type ContactoPickerItem = {
+  id: string;
+  displayName: string;
+  fiscal_id: string | null;
+  tipo: ContactoTipo;
+};
+
+/**
+ * Busca contactos ACTIVE por nombre, razón social o NIF.
+ * Excluye el contacto actual (excludeId) para evitar auto-relaciones.
+ * Límite: 10 resultados (picker, no listado).
+ */
+export async function searchContactosForPicker(
+  query: string,
+  excludeId: string
+): Promise<{ ok: true; data: ContactoPickerItem[] } | { ok: false; error: string }> {
+  if (!query.trim() || query.trim().length < 2) {
+    return { ok: true, data: [] };
+  }
+  try {
+    const q = query.trim();
+    const contacts = await prisma.contacto.findMany({
+      where: {
+        status: ContactoStatus.ACTIVE,
+        id: { not: excludeId },
+        OR: [
+          { nombre:       { contains: q, mode: "insensitive" } },
+          { apellido1:    { contains: q, mode: "insensitive" } },
+          { razon_social: { contains: q, mode: "insensitive" } },
+          { fiscal_id:    { contains: q, mode: "insensitive" } },
+        ],
+      },
+      select: { id: true, nombre: true, apellido1: true, apellido2: true, razon_social: true, fiscal_id: true, tipo: true },
+      take: 10,
+      orderBy: { created_at: "desc" },
+    });
+    const data: ContactoPickerItem[] = contacts.map((c) => ({
+      id: c.id,
+      displayName:
+        c.tipo === ContactoTipo.PERSONA_JURIDICA
+          ? c.razon_social ?? "—"
+          : [c.nombre, c.apellido1, c.apellido2].filter(Boolean).join(" ") || "—",
+      fiscal_id: c.fiscal_id,
+      tipo: c.tipo,
+    }));
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Error al buscar contactos" };
+  }
+}
+
+/**
+ * Actualiza campos editables de una Relación existente.
+ */
+export async function updateRelacion(
+  id: string,
+  contactoId: string,
+  data: {
+    notas?:                string | null;
+    cargo?:                string | null;
+    departamento_interno?: string | null;
+    sede_vinculada_id?:    string | null;
+  }
+): Promise<ActionResult> {
+  try {
+    await relacionRepository.update(id, data);
+    revalidatePath(`/contactos/${contactoId}`);
+    return { ok: true, data: undefined };
+  } catch {
+    return { ok: false, error: "Error al actualizar la relación" };
   }
 }

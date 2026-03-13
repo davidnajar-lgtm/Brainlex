@@ -29,6 +29,9 @@ import { ContactoTipo } from "@prisma/client";
 import { TabFiliacionClient } from "@/app/contactos/_modules/ficha/TabFiliacionClient";
 import { TabOperativa }       from "@/app/contactos/_modules/ficha/TabOperativa";
 import { TabAdmin }           from "@/app/contactos/_modules/ficha/TabAdmin";
+import { TabEcosistema }      from "@/app/contactos/_modules/ficha/TabEcosistema";
+import { CloneStructureButton } from "@/app/contactos/_modules/ficha/CloneStructureButton";
+import { TabBovedaWrapper }     from "@/app/contactos/_modules/ficha/TabBovedaWrapper";
 import { IsActiveToggle }     from "@/app/contactos/_modules/ficha/IsActiveToggle";
 import { RolesPanel }         from "@/app/contactos/_modules/ficha/RolesPanel";
 import { DataHealthCircle }   from "@/app/contactos/_modules/shared/DataHealthCircle";
@@ -281,6 +284,7 @@ export default async function ContactoFichaPage({
                     status:   contacto.status,
                   }}
                 />
+                <CloneStructureButton contactoId={contacto.id} />
               </div>
             ) : activeTab === "filiacion" ? (
               <TabFiliacionClient contacto={contacto} displayName={displayName} />
@@ -293,12 +297,10 @@ export default async function ContactoFichaPage({
                 quarantineReason={contacto.quarantine_reason}
                 quarantineExpiresAt={contacto.quarantine_expires_at}
               />
+            ) : activeTab === "ecosistema" ? (
+              <TabEcosistema contactoId={contacto.id} />
             ) : (
-              <TabPlaceholder
-                label={TAB_META[activeTab].label}
-                description={TAB_META[activeTab].description}
-                icon={TAB_META[activeTab].icon}
-              />
+              <TabBovedaWrapper contactoId={contacto.id} />
             )}
           </div>
         </div>

@@ -90,6 +90,53 @@ export const contactoRepository = {
   },
 
   /**
+   * @Scope-Guard — Devuelve Contactos ACTIVOS filtrados por tenant (company_id).
+   * Filtra vía JOIN con ContactoCompanyLink: solo contactos vinculados al tenant.
+   * Si companyId es null → devuelve todos (bypass SuperAdmin / CEO).
+   */
+  async findByCompany(companyId: string | null, skip = 0, take = 500): Promise<Contacto[]> {
+    return prisma.contacto.findMany({
+      where: {
+        status: ContactoStatus.ACTIVE,
+        ...(companyId && {
+          company_links: { some: { company_id: companyId } },
+        }),
+      },
+      orderBy: { created_at: "desc" },
+      skip,
+      take,
+    });
+  },
+
+  /**
+   * Busca un Contacto por NIF/CIF incluyendo sus company_links.
+   * Usado para detección de duplicados inter-matriz al crear un contacto.
+   */
+  async findByFiscalIdWithCompanyLinks(
+    fiscal_id: string,
+    fiscal_id_tipo: FiscalIdTipo
+  ): Promise<(Contacto & { company_links: { company_id: string }[] }) | null> {
+    return prisma.contacto.findFirst({
+      where: { fiscal_id, fiscal_id_tipo, status: ContactoStatus.ACTIVE },
+      include: { company_links: { select: { company_id: true } } },
+    });
+  },
+
+  /**
+   * Vincula un Contacto existente a una nueva matriz (tenant).
+   * Idempotente: el @@unique([contacto_id, company_id]) previene duplicados.
+   */
+  async linkToCompany(contactoId: string, companyId: string) {
+    return prisma.contactoCompanyLink.upsert({
+      where: {
+        contacto_id_company_id: { contacto_id: contactoId, company_id: companyId },
+      },
+      create: { contacto_id: contactoId, company_id: companyId },
+      update: {},
+    });
+  },
+
+  /**
    * Busca un Contacto por ID (cualquier estado).
    */
   async findById(id: string): Promise<Contacto | null> {

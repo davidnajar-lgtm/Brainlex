@@ -387,6 +387,15 @@ export type CreateContactoResult =
       conflictType:         "QUARANTINE_RESURRECTION";
       quarantineContactoId: string;
       contactoName:         string;
+    }
+  | {
+      ok:                   false;
+      error:                string;
+      fieldErrors?:         ContactoFieldErrors;
+      /** Indica que el NIF ya existe en OTRA matriz del Holding — mostrar modal de vínculo. */
+      conflictType:         "CROSS_MATRIX";
+      quarantineContactoId: string;
+      contactoName:         string;
     };
 export type UpdateContactoResult =
   | { ok: false; error: string; fieldErrors?: ContactoFieldErrors };
