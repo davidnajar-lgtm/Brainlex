@@ -2,29 +2,48 @@
 
 import { useState, useTransition } from "react";
 import { Shield, ChevronDown, ChevronUp } from "lucide-react";
+import { useTenant } from "@/lib/context/TenantContext";
+import { resolveDisplayRole } from "@/lib/modules/entidades/services/linkRole.service";
 import {
   toggleEsCliente,
   toggleEsPrecliente,
   toggleEsFacturadora,
 } from "@/lib/modules/entidades/actions/contactos.actions";
 
+interface CompanyLink {
+  company_id: string;
+  role: string | null;
+}
+
 export function RolesPanel({
   contactoId,
   initialEsCliente,
   initialEsPrecliente,
   initialEsFacturadora,
+  companyLinks = [],
 }: {
   contactoId:           string;
   initialEsCliente:     boolean;
   initialEsPrecliente:  boolean;
   initialEsFacturadora: boolean;
+  companyLinks?:        CompanyLink[];
 }) {
+  const { tenant } = useTenant();
   const [esCliente,     setEsCliente]     = useState(initialEsCliente);
   const [esPrecliente,  setEsPrecliente]  = useState(initialEsPrecliente);
   const [esFacturadora, setEsFacturadora] = useState(initialEsFacturadora);
   const [editing,       setEditing]       = useState(false);
   const [error,         setError]         = useState<string | null>(null);
   const [isPending,     startTransition]  = useTransition();
+
+  // Resolver rol per-tenant desde el link
+  const currentLink = companyLinks.find((l) => l.company_id === tenant.id);
+  const displayRole = resolveDisplayRole({
+    linkRole: currentLink?.role ?? null,
+    esCliente,
+    esPrecliente,
+    esFacturadora,
+  });
 
   const ningúnRol = !esCliente && !esPrecliente && !esFacturadora;
 
@@ -66,24 +85,39 @@ export function RolesPanel({
 
   return (
     <div className="mt-1.5 space-y-1.5">
-      {/* ── Current status badges (read-only) ──────────────────────────── */}
+      {/* ── Per-tenant role badge (source: link.role → flags fallback) ── */}
       <div className="flex flex-wrap items-center gap-1">
-        {esFacturadora && (
+        {displayRole === "Matriz" && (
           <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 bg-[var(--badge-matriz-bg)] text-[var(--badge-matriz-text)] ring-[var(--badge-matriz-ring)]">
             MATRIZ
           </span>
         )}
-        {esCliente && (
+        {displayRole === "Cliente" && (
           <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 bg-[var(--badge-cliente-bg)] text-[var(--badge-cliente-text)] ring-[var(--badge-cliente-ring)]">
             CLIENTE
           </span>
         )}
-        {esPrecliente && (
+        {displayRole === "Pre-cliente" && (
           <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 bg-[var(--badge-prec-bg)] text-[var(--badge-prec-text)] ring-[var(--badge-prec-ring)]">
             PRE-CLIENTE
           </span>
         )}
-        {ningúnRol && (
+        {displayRole === "Proveedor" && (
+          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 bg-purple-500/10 text-purple-400 ring-purple-500/30">
+            PROVEEDOR
+          </span>
+        )}
+        {displayRole === "Contrario" && (
+          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 bg-red-500/10 text-red-400 ring-red-500/30">
+            CONTRARIO
+          </span>
+        )}
+        {displayRole === "Notario" && (
+          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 bg-sky-500/10 text-sky-400 ring-sky-500/30">
+            NOTARIO
+          </span>
+        )}
+        {displayRole === "Contacto" && (
           <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 bg-zinc-700/60 text-zinc-300 ring-zinc-500/50">
             CONTACTO
           </span>

@@ -117,6 +117,7 @@ model SociedadHolding {
   // Relaciones descendentes
   contacto_links ContactoCompanyLink[]
   expedientes    Expediente[]
+  carpetas       Carpeta[]
 
   @@map("sociedades_holding")
 }
@@ -519,6 +520,7 @@ model Carpeta {
   nombre      String
   tipo        CarpetaTipo @default(MANUAL)
   contacto_id String
+  company_id  String?                         /// Tenant key: "LX" | "LW" — nullable para carpetas preexistentes
   parent_id   String?                         /// Self-ref: subcarpeta de otra carpeta
   etiqueta_id String?                         /// Solo INTELIGENTE: FK a la Etiqueta Constructor origen
   es_blueprint Boolean    @default(false)     /// true = subcarpeta de blueprint, inmutable (no mover/renombrar/borrar)
@@ -527,13 +529,15 @@ model Carpeta {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  contacto Contacto  @relation(fields: [contacto_id], references: [id], onDelete: Cascade)
-  parent   Carpeta?  @relation("CarpetaHierarchy", fields: [parent_id], references: [id])
-  children Carpeta[] @relation("CarpetaHierarchy")
-  etiqueta Etiqueta? @relation(fields: [etiqueta_id], references: [id])
+  contacto Contacto         @relation(fields: [contacto_id], references: [id], onDelete: Cascade)
+  sociedad SociedadHolding? @relation(fields: [company_id], references: [company_id])
+  parent   Carpeta?         @relation("CarpetaHierarchy", fields: [parent_id], references: [id])
+  children Carpeta[]        @relation("CarpetaHierarchy")
+  etiqueta Etiqueta?        @relation(fields: [etiqueta_id], references: [id])
   archivos Archivo[]
 
   @@index([contacto_id])
+  @@index([company_id])
   @@index([parent_id])
   @@index([etiqueta_id])
   @@map("carpetas")

@@ -86,6 +86,15 @@ export interface ContactosLabels {
     confirmNo:        string;
     restoring:        string;
   };
+  /** Bóveda — Descarga ZIP */
+  boveda: {
+    descargarTodo:    string;
+    descargarCarpeta: string;
+    generando:        string;
+    errorDescarga:    string;
+    bovedaVacia:      string;
+    sinAcceso:        string;
+  };
 }
 
 // ─── ES ───────────────────────────────────────────────────────────────────────
@@ -175,6 +184,14 @@ const ES: ContactosLabels = {
     confirmYes:   "Sí, restaurar",
     confirmNo:    "Cancelar",
     restoring:    "Restaurando…",
+  },
+  boveda: {
+    descargarTodo:    "Descargar todo (.zip)",
+    descargarCarpeta: "Descargar carpeta (.zip)",
+    generando:        "Generando...",
+    errorDescarga:    "Error al generar el archivo ZIP.",
+    bovedaVacia:      "La bóveda está vacía. No hay carpetas para descargar.",
+    sinAcceso:        "No hay carpetas accesibles para descargar.",
   },
 };
 
@@ -266,6 +283,14 @@ const EN: ContactosLabels = {
     confirmNo:    "Cancel",
     restoring:    "Restoring…",
   },
+  boveda: {
+    descargarTodo:    "Download all (.zip)",
+    descargarCarpeta: "Download folder (.zip)",
+    generando:        "Generating...",
+    errorDescarga:    "Error generating the ZIP file.",
+    bovedaVacia:      "The vault is empty. No folders to download.",
+    sinAcceso:        "No accessible folders to download.",
+  },
 };
 
 // ─── FR ───────────────────────────────────────────────────────────────────────
@@ -355,6 +380,14 @@ const FR: ContactosLabels = {
     confirmYes:   "Oui, restaurer",
     confirmNo:    "Annuler",
     restoring:    "Restauration en cours…",
+  },
+  boveda: {
+    descargarTodo:    "Tout télécharger (.zip)",
+    descargarCarpeta: "Télécharger le dossier (.zip)",
+    generando:        "Génération en cours...",
+    errorDescarga:    "Erreur lors de la génération du fichier ZIP.",
+    bovedaVacia:      "Le coffre est vide. Aucun dossier à télécharger.",
+    sinAcceso:        "Aucun dossier accessible à télécharger.",
   },
 };
 

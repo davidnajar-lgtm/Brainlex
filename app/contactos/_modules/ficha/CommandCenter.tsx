@@ -19,7 +19,7 @@
 // ============================================================================
 
 import { useState, useEffect, useTransition, useCallback, createContext, useContext, type ReactNode, type DragEvent } from "react";
-import { Folder, Tag, X, Pencil, Zap, ChevronLeft, ChevronRight, CalendarDays, FilePlus2, FileText } from "lucide-react";
+import { Folder, FolderLock, Tag, X, Pencil, Zap, ChevronLeft, ChevronRight, CalendarDays, FilePlus2, FileText } from "lucide-react";
 import Link from "next/link";
 import { useTenant } from "@/lib/context/TenantContext";
 import { useToast } from "@/components/ui/Toast";
@@ -31,6 +31,8 @@ import {
   desasignarEtiqueta,
 } from "@/lib/modules/entidades/actions/etiquetas.actions";
 import { createDriveFolder, buildDriveFolderTree, isYearTag, type DriveFolderNode } from "@/lib/services/driveMock.service";
+import { materializeBlueprintCarpetas } from "@/lib/modules/entidades/actions/boveda.actions";
+import { TabBoveda } from "./TabBoveda";
 
 // ─── 5 cajones SALI — estructura rigida, no ampliable ───────────────────────
 
@@ -186,6 +188,7 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
   const [isOverAtributos, setIsOverAtributos]     = useState(false);
   const [isOverCarpetas, setIsOverCarpetas]       = useState(false);
   const [classificationOpen, setClassificationOpen] = useState(false);
+  const [bovedaReloadKey, setBovedaReloadKey] = useState(0);
 
   // ── Estado del modal de Nuevo Expediente ──────────────────────────────────
   const [expedienteModal, setExpedienteModal] = useState<{
@@ -277,13 +280,21 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
     setAssigned((prev) => [...prev, optimisticTag]);
 
     if (payload.categoriaTipo === "CONSTRUCTOR") {
-      const dr = await createDriveFolder({
-        contactoId, contactoName,
-        categoriaNombre: payload.categoriaNombre,
-        etiquetaNombre:  payload.nombre,
-      });
-      if (dr.success) {
-        toast({ message: `[SIMULACION] Carpeta: ${dr.path}`, variant: "info", icon: "folder" });
+      // Materializar carpetas blueprint en BD (reemplaza simulación)
+      const matResult = await materializeBlueprintCarpetas(contactoId, payload.id);
+      if (matResult.ok && matResult.data.carpetaIds.length > 0) {
+        toast({ message: `Carpeta "${payload.nombre}" creada en la Bóveda`, variant: "success", icon: "folder" });
+        setBovedaReloadKey((k) => k + 1);
+      } else {
+        // Fallback: simulación mock (carpeta ya existía o categoría no-Constructor)
+        const dr = await createDriveFolder({
+          contactoId, contactoName,
+          categoriaNombre: payload.categoriaNombre,
+          etiquetaNombre:  payload.nombre,
+        });
+        if (dr.success) {
+          toast({ message: `[SIMULACION] Carpeta: ${dr.path}`, variant: "info", icon: "folder" });
+        }
       }
     } else {
       toast({ message: `"${payload.nombre}" guardado`, variant: "success", icon: "tag" });
@@ -399,8 +410,14 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
     };
     setAssigned((prev) => [...prev, optimisticTag]);
     if (payload.categoriaTipo === "CONSTRUCTOR") {
-      const dr = await createDriveFolder({ contactoId, contactoName, categoriaNombre: payload.categoriaNombre, etiquetaNombre: payload.nombre });
-      if (dr.success) toast({ message: `[SIMULACION] Carpeta: ${dr.path}`, variant: "info", icon: "folder" });
+      const matResult = await materializeBlueprintCarpetas(contactoId, payload.id);
+      if (matResult.ok && matResult.data.carpetaIds.length > 0) {
+        toast({ message: `Carpeta "${payload.nombre}" creada en la Bóveda`, variant: "success", icon: "folder" });
+        setBovedaReloadKey((k) => k + 1);
+      } else {
+        const dr = await createDriveFolder({ contactoId, contactoName, categoriaNombre: payload.categoriaNombre, etiquetaNombre: payload.nombre });
+        if (dr.success) toast({ message: `[SIMULACION] Carpeta: ${dr.path}`, variant: "info", icon: "folder" });
+      }
     } else {
       toast({ message: `"${payload.nombre}" guardado`, variant: "success", icon: "tag" });
     }
@@ -487,39 +504,19 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
           </AssignedTagsContext.Provider>
         </div>
 
-        {/* Drive simulation — shown inline when classification is open */}
+        {/* ── Gestor Documental — explorador de archivos operativo (antes Simulador) ── */}
         {classificationOpen && (
           <div className="flex-1 overflow-y-auto border-t border-zinc-800">
             <div className="px-3 py-2 border-b border-zinc-800 shrink-0 flex items-center justify-between">
               <div className="flex items-center gap-1.5">
-                <Folder className="h-3.5 w-3.5" style={{ color: accentColor }} />
+                <FolderLock className="h-3.5 w-3.5" style={{ color: accentColor }} />
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-                  Simulador de carpetas en Drive
+                  Gestor Documental
                 </p>
               </div>
-              <span className="rounded-sm bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-500/70">
-                Preview
-              </span>
             </div>
-            <div className="px-3 py-3">
-              {constructorTags.length === 0 ? (
-                <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-6 text-center">
-                  <Folder className="h-5 w-5 text-zinc-700" />
-                  <p className="mt-1.5 text-[11px] text-zinc-600">
-                    Sin carpetas por crear
-                  </p>
-                  <p className="mt-0.5 text-[9px] text-zinc-700">
-                    Asigna etiquetas de Departamento o Servicio para generar estructura
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <FolderTreeView key={constructorTags.map(t => t.etiquetaNombre).join(",")} node={folderTree} depth={0} accentColor={accentColor} />
-                  <p className="mt-3 text-[9px] text-zinc-700">
-                    {constructorTags.length} carpeta{constructorTags.length > 1 ? "s" : ""} de trabajo · cada una con subcarpetas automaticas
-                  </p>
-                </>
-              )}
+            <div className="px-2 py-2">
+              <TabBoveda contactoId={contactoId} reloadKey={bovedaReloadKey} tenantId={tenant.id} />
             </div>
           </div>
         )}

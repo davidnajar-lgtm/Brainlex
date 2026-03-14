@@ -180,12 +180,13 @@ describe("ContactoFormSchema — Validación de Fiscal ID", () => {
   });
 
   it("acepta CIF válido para Persona Jurídica", () => {
+    // B1234567 → control=4 (sumOdd=14, sumEven=12, total=6, control=10-6=4)
     const result = ContactoFormSchema.safeParse({
       tipo:           "PERSONA_JURIDICA",
       razon_social:   "EMPRESA TEST S.L.",
       tipo_sociedad:  "S.L.",
       fiscal_id_tipo: "CIF",
-      fiscal_id:      "B12345678",
+      fiscal_id:      "B12345674",
       es_cliente:     false,
     });
     expect(result.success).toBe(true);

@@ -30,6 +30,7 @@ import {
   Trash2,
   GripVertical,
   Loader2,
+  Download,
 } from "lucide-react";
 import type { CarpetaNode } from "@/lib/services/bovedaTree.service";
 import {
@@ -46,6 +47,10 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 interface TabBovedaProps {
   contactoId: string;
   onOpenConsejero?: () => void;
+  /** Incrementar para forzar recarga del árbol (tras asignar etiquetas). */
+  reloadKey?: number;
+  /** Tenant activo ("LX" | "LW") para filtrar carpetas por visibilidad. */
+  tenantId?: string | null;
 }
 
 interface DragPayload {
@@ -70,6 +75,55 @@ function formatSize(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// ─── Input reutilizable para crear carpeta ──────────────────────────────────
+
+function QuickCreateInput({
+  value,
+  onChange,
+  onConfirm,
+  onCancel,
+  depth = 0,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+  depth?: number;
+}) {
+  return (
+    <div
+      className="flex items-center gap-2 rounded-md bg-zinc-900/80 p-1.5 ring-1 ring-zinc-800 my-0.5"
+      style={{ marginLeft: depth > 0 ? `${depth * 16 + 4}px` : undefined }}
+    >
+      <FolderPlus className="h-3 w-3 text-blue-400 shrink-0" />
+      <input
+        autoFocus
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") onConfirm();
+          if (e.key === "Escape") onCancel();
+        }}
+        placeholder="Nombre de la carpeta..."
+        className="flex-1 bg-transparent text-xs text-zinc-300 placeholder:text-zinc-700 outline-none"
+      />
+      <button
+        onClick={onConfirm}
+        disabled={!value.trim()}
+        className="rounded bg-zinc-700 px-2 py-0.5 text-[11px] text-zinc-300 transition-colors hover:bg-zinc-600 disabled:opacity-40"
+      >
+        Crear
+      </button>
+      <button
+        onClick={onCancel}
+        className="text-[11px] text-zinc-600 hover:text-zinc-400"
+      >
+        Cancelar
+      </button>
+    </div>
+  );
+}
+
 // ─── Componente de nodo del árbol ───────────────────────────────────────────
 
 function CarpetaTreeNode({
@@ -77,6 +131,16 @@ function CarpetaTreeNode({
   depth,
   onDelete,
   onDrop,
+  onDownload,
+  onCreateSub,
+  selectedNodeId,
+  onSelect,
+  quickCreateParentId,
+  newFolderName,
+  onNewFolderNameChange,
+  onQuickCreateConfirm,
+  onQuickCreateCancel,
+  downloading,
   dragPayload,
   setDragPayload,
 }: {
@@ -84,6 +148,16 @@ function CarpetaTreeNode({
   depth: number;
   onDelete: (id: string, nombre: string, esBlueprint: boolean) => void;
   onDrop: (targetId: string) => void;
+  onDownload: (carpetaId: string) => void;
+  onCreateSub: (parentId: string) => void;
+  selectedNodeId: string | null;
+  onSelect: (id: string | null) => void;
+  quickCreateParentId: string | null | false;
+  newFolderName: string;
+  onNewFolderNameChange: (v: string) => void;
+  onQuickCreateConfirm: () => void;
+  onQuickCreateCancel: () => void;
+  downloading: boolean;
   dragPayload: DragPayload | null;
   setDragPayload: (p: DragPayload | null) => void;
 }) {
@@ -92,6 +166,7 @@ function CarpetaTreeNode({
   const hasChildren = node.children.length > 0 || node.archivos.length > 0;
   const isBlueprint = node.es_blueprint;
   const isInteligente = node.tipo === "INTELIGENTE";
+  const isSelected = selectedNodeId === node.id;
 
   const FolderIcon = isBlueprint
     ? FolderLock
@@ -113,7 +188,7 @@ function CarpetaTreeNode({
   }
 
   function handleDragOver(e: DragEvent) {
-    if (!dragPayload || isBlueprint) return;
+    if (!dragPayload) return;
     if (dragPayload.type === "carpeta" && dragPayload.id === node.id) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
@@ -126,7 +201,7 @@ function CarpetaTreeNode({
     e.preventDefault();
     e.stopPropagation();
     setDragOver(false);
-    if (!dragPayload || isBlueprint) return;
+    if (!dragPayload) return;
     onDrop(node.id);
   }
 
@@ -135,10 +210,16 @@ function CarpetaTreeNode({
       {/* Folder row */}
       <div
         className={`group flex items-center gap-1 rounded px-1 py-0.5 cursor-pointer select-none transition-colors
-          ${dragOver ? "bg-blue-500/20 ring-1 ring-blue-500/40" : "hover:bg-zinc-800/50"}
+          ${dragOver
+            ? "bg-blue-500/20 ring-1 ring-blue-500/40"
+            : isSelected
+              ? "bg-blue-500/15 ring-1 ring-blue-500/30"
+              : "hover:bg-zinc-800/50"
+          }
         `}
         style={{ paddingLeft: `${depth * 16 + 4}px` }}
         draggable={!isBlueprint}
+        onClick={() => onSelect(isSelected ? null : node.id)}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -147,7 +228,7 @@ function CarpetaTreeNode({
       >
         {/* Expand/collapse */}
         <button
-          onClick={() => setExpanded(!expanded)}
+          onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
           className="shrink-0 p-0.5 text-zinc-600 hover:text-zinc-400"
           aria-label={expanded ? "Colapsar" : "Expandir"}
         >
@@ -186,6 +267,25 @@ function CarpetaTreeNode({
           </span>
         )}
 
+        {/* Download carpeta */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onDownload(node.id); }}
+          disabled={downloading}
+          className="p-0.5 text-zinc-700 hover:text-emerald-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+          title="Descargar carpeta (.zip)"
+        >
+          <Download className="h-3 w-3" />
+        </button>
+
+        {/* Crear subcarpeta dentro de esta carpeta */}
+        <button
+          onClick={(e) => { e.stopPropagation(); setExpanded(true); onCreateSub(node.id); }}
+          className="p-0.5 text-zinc-700 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+          title="Nueva subcarpeta aquí"
+        >
+          <FolderPlus className="h-3 w-3" />
+        </button>
+
         {/* Delete (solo carpetas no-blueprint) */}
         {!isBlueprint && (
           <button
@@ -198,7 +298,7 @@ function CarpetaTreeNode({
         )}
       </div>
 
-      {/* Children + files */}
+      {/* Children + files + inline create */}
       {expanded && (
         <div>
           {/* Subcarpetas */}
@@ -209,10 +309,31 @@ function CarpetaTreeNode({
               depth={depth + 1}
               onDelete={onDelete}
               onDrop={onDrop}
+              onDownload={onDownload}
+              onCreateSub={onCreateSub}
+              selectedNodeId={selectedNodeId}
+              onSelect={onSelect}
+              quickCreateParentId={quickCreateParentId}
+              newFolderName={newFolderName}
+              onNewFolderNameChange={onNewFolderNameChange}
+              onQuickCreateConfirm={onQuickCreateConfirm}
+              onQuickCreateCancel={onQuickCreateCancel}
+              downloading={downloading}
               dragPayload={dragPayload}
               setDragPayload={setDragPayload}
             />
           ))}
+
+          {/* Quick-create inline dentro de esta carpeta */}
+          {quickCreateParentId === node.id && (
+            <QuickCreateInput
+              value={newFolderName}
+              onChange={onNewFolderNameChange}
+              onConfirm={onQuickCreateConfirm}
+              onCancel={onQuickCreateCancel}
+              depth={depth + 1}
+            />
+          )}
 
           {/* Archivos */}
           {node.archivos.map((archivo) => {
@@ -248,7 +369,7 @@ function CarpetaTreeNode({
 
 // ─── Componente principal ───────────────────────────────────────────────────
 
-export function TabBoveda({ contactoId, onOpenConsejero }: TabBovedaProps) {
+export function TabBoveda({ contactoId, onOpenConsejero, reloadKey = 0, tenantId }: TabBovedaProps) {
   const [tree, setTree] = useState<CarpetaNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
@@ -257,17 +378,25 @@ export function TabBoveda({ contactoId, onOpenConsejero }: TabBovedaProps) {
   // Confirm dialog state
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; nombre: string } | null>(null);
 
-  // Quick-create state
-  const [quickCreate, setQuickCreate] = useState(false);
+  // Selección de carpeta activa (para crear subcarpeta con botón header)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  // Quick-create state (parentId = null → raíz, string → dentro de carpeta)
+  const [quickCreateParentId, setQuickCreateParentId] = useState<string | null | false>(false);
   const [newFolderName, setNewFolderName] = useState("");
+  const quickCreate = quickCreateParentId !== false;
+
+  // Download state
+  const [downloading, setDownloading] = useState(false);
 
   const reload = useCallback(async () => {
-    const data = await getCarpetasTree(contactoId);
+    const data = await getCarpetasTree(contactoId, tenantId);
     setTree(data);
     setLoading(false);
-  }, [contactoId]);
+  }, [contactoId, tenantId]);
 
-  useEffect(() => { reload(); }, [reload]);
+  // Reload on mount AND when reloadKey changes (tras asignar etiquetas)
+  useEffect(() => { reload(); }, [reload, reloadKey]);
 
   // ─── Handlers ─────────────────────────────────────────────────────────
 
@@ -298,11 +427,50 @@ export function TabBoveda({ contactoId, onOpenConsejero }: TabBovedaProps) {
 
   async function handleQuickCreate() {
     if (!newFolderName.trim()) return;
-    const result = await createCarpetaManual(contactoId, newFolderName.trim());
+    const parentId = quickCreateParentId === false ? null : quickCreateParentId;
+    const result = await createCarpetaManual(contactoId, newFolderName.trim(), parentId, tenantId);
     if (result.ok) {
       setNewFolderName("");
-      setQuickCreate(false);
+      setQuickCreateParentId(false);
       await reload();
+    }
+  }
+
+  function handleCreateSub(parentId: string) {
+    setQuickCreateParentId(parentId);
+    setNewFolderName("");
+  }
+
+  /** Descarga ZIP de la bóveda completa o de una carpeta específica. */
+  async function handleDownloadZip(carpetaId?: string) {
+    setDownloading(true);
+    try {
+      const params = new URLSearchParams({ contactoId });
+      if (carpetaId) params.set("carpetaId", carpetaId);
+
+      const res = await fetch(`/api/boveda/download?${params.toString()}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: "Error de descarga" }));
+        alert(body.error || "Error al generar el archivo ZIP.");
+        return;
+      }
+
+      // Descargar el blob y trigger link
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      const fileName = match?.[1] ?? "Boveda.zip";
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(false);
     }
   }
 
@@ -333,45 +501,42 @@ export function TabBoveda({ contactoId, onOpenConsejero }: TabBovedaProps) {
               Consejero
             </button>
           )}
+          {tree.length > 0 && (
+            <button
+              onClick={() => handleDownloadZip()}
+              disabled={downloading}
+              className="flex items-center gap-1 rounded-md bg-emerald-600/10 px-2 py-1 text-[11px] font-medium text-emerald-400 ring-1 ring-emerald-500/20 transition-colors hover:bg-emerald-600/20 disabled:opacity-40"
+              title="Descargar toda la bóveda como archivo ZIP"
+            >
+              {downloading ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Download className="h-3 w-3" />
+              )}
+              {downloading ? "Generando..." : "Descargar (.zip)"}
+            </button>
+          )}
           <button
-            onClick={() => setQuickCreate(true)}
+            onClick={() => {
+              setQuickCreateParentId(selectedNodeId);
+              setNewFolderName("");
+            }}
             className="flex items-center gap-1 rounded-md bg-zinc-800 px-2 py-1 text-[11px] font-medium text-zinc-400 ring-1 ring-zinc-700 transition-colors hover:bg-zinc-700 hover:text-zinc-300"
           >
             <FolderPlus className="h-3 w-3" />
-            Nueva carpeta
+            {selectedNodeId ? "Nueva subcarpeta" : "Nueva carpeta"}
           </button>
         </div>
       </div>
 
-      {/* Quick create inline */}
-      {quickCreate && (
-        <div className="flex items-center gap-2 rounded-md bg-zinc-900/80 p-2 ring-1 ring-zinc-800">
-          <Folder className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
-          <input
-            autoFocus
-            value={newFolderName}
-            onChange={(e) => setNewFolderName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleQuickCreate();
-              if (e.key === "Escape") { setQuickCreate(false); setNewFolderName(""); }
-            }}
-            placeholder="Nombre de la carpeta..."
-            className="flex-1 bg-transparent text-xs text-zinc-300 placeholder:text-zinc-700 outline-none"
-          />
-          <button
-            onClick={handleQuickCreate}
-            disabled={!newFolderName.trim()}
-            className="rounded bg-zinc-700 px-2 py-0.5 text-[11px] text-zinc-300 transition-colors hover:bg-zinc-600 disabled:opacity-40"
-          >
-            Crear
-          </button>
-          <button
-            onClick={() => { setQuickCreate(false); setNewFolderName(""); }}
-            className="text-[11px] text-zinc-600 hover:text-zinc-400"
-          >
-            Cancelar
-          </button>
-        </div>
+      {/* Quick create inline — solo se muestra aquí si el padre es null (raíz) */}
+      {quickCreate && quickCreateParentId === null && (
+        <QuickCreateInput
+          value={newFolderName}
+          onChange={setNewFolderName}
+          onConfirm={handleQuickCreate}
+          onCancel={() => { setQuickCreateParentId(false); setNewFolderName(""); }}
+        />
       )}
 
       {/* Tree */}
@@ -396,7 +561,7 @@ export function TabBoveda({ contactoId, onOpenConsejero }: TabBovedaProps) {
               </button>
             )}
             <button
-              onClick={() => setQuickCreate(true)}
+              onClick={() => setQuickCreateParentId(null)}
               className="flex items-center gap-1 rounded-md bg-zinc-800 px-3 py-1.5 text-[11px] font-medium text-zinc-400 ring-1 ring-zinc-700 transition-colors hover:bg-zinc-700"
             >
               <FolderPlus className="h-3 w-3" />
@@ -419,6 +584,16 @@ export function TabBoveda({ contactoId, onOpenConsejero }: TabBovedaProps) {
               depth={0}
               onDelete={handleDelete}
               onDrop={handleDrop}
+              onDownload={handleDownloadZip}
+              onCreateSub={handleCreateSub}
+              selectedNodeId={selectedNodeId}
+              onSelect={setSelectedNodeId}
+              quickCreateParentId={quickCreateParentId}
+              newFolderName={newFolderName}
+              onNewFolderNameChange={setNewFolderName}
+              onQuickCreateConfirm={handleQuickCreate}
+              onQuickCreateCancel={() => { setQuickCreateParentId(false); setNewFolderName(""); }}
+              downloading={downloading}
               dragPayload={dragPayload}
               setDragPayload={setDragPayload}
             />

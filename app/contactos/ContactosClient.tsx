@@ -17,7 +17,8 @@ import { DeleteButton } from "./_modules/shared/DeleteButton";
 import { Shield, Search, Archive, Eye } from "lucide-react";
 import { DataHealthCircle } from "./_modules/shared/DataHealthCircle";
 import { calcDataHealth } from "@/lib/utils/dataHealth";
-import { getContactos, searchInQuarantine, type QuarantineHit } from "@/lib/modules/entidades/actions/contactos.actions";
+import { getContactos, searchInQuarantine, type QuarantineHit, type ContactoWithLinkRole } from "@/lib/modules/entidades/actions/contactos.actions";
+import { resolveDisplayRole } from "@/lib/modules/entidades/services/linkRole.service";
 import { ExportDropdown } from "./_modules/listado/ExportDropdown";
 import { useTenant } from "@/lib/context/TenantContext";
 
@@ -70,37 +71,41 @@ function StatusBadge({ status, isActive }: { status: ContactoStatus; isActive: b
   );
 }
 
-function RoleBadges({ c }: { c: Contacto }) {
+function RoleBadges({ c }: { c: ContactoWithLinkRole }) {
+  const ext = c as ContactoWithLinkRole & { es_precliente: boolean };
+  const linkRole = c.company_links?.[0]?.role ?? null;
+  const role = resolveDisplayRole({
+    linkRole,
+    esCliente: c.es_cliente,
+    esPrecliente: ext.es_precliente,
+    esFacturadora: c.es_facturadora,
+  });
+
+  const badgeMap: Record<string, { label: string; className: string; icon?: boolean }> = {
+    Matriz:        { label: "Matriz",      className: "bg-[var(--badge-matriz-bg)] text-[var(--badge-matriz-text)] ring-[var(--badge-matriz-ring)]", icon: true },
+    Cliente:       { label: "Cliente",     className: "bg-[var(--badge-cliente-bg)] text-[var(--badge-cliente-text)] ring-[var(--badge-cliente-ring)]" },
+    "Pre-cliente": { label: "Pre-cliente", className: "bg-[var(--badge-prec-bg)] text-[var(--badge-prec-text)] ring-[var(--badge-prec-ring)]" },
+    Proveedor:     { label: "Proveedor",   className: "bg-purple-500/10 text-purple-400 ring-purple-500/30" },
+    Contrario:     { label: "Contrario",   className: "bg-red-500/10 text-red-400 ring-red-500/30" },
+    Notario:       { label: "Notario",     className: "bg-sky-500/10 text-sky-400 ring-sky-500/30" },
+    Contacto:      { label: "Contacto",    className: "bg-zinc-700/60 text-zinc-300 ring-zinc-500/50" },
+  };
+
+  const badge = badgeMap[role] ?? badgeMap.Contacto;
+
   return (
     <div className="flex flex-wrap justify-end gap-1">
-      {c.es_facturadora && (
-        <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 bg-[var(--badge-matriz-bg)] text-[var(--badge-matriz-text)] ring-[var(--badge-matriz-ring)]">
-          <Shield className="h-2.5 w-2.5" />
-          Matriz
-        </span>
-      )}
-      {c.es_cliente && !c.es_facturadora && (
-        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 bg-[var(--badge-cliente-bg)] text-[var(--badge-cliente-text)] ring-[var(--badge-cliente-ring)]">
-          Cliente
-        </span>
-      )}
-      {(c as Contacto & { es_precliente: boolean }).es_precliente && (
-        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 bg-[var(--badge-prec-bg)] text-[var(--badge-prec-text)] ring-[var(--badge-prec-ring)]">
-          Pre-cliente
-        </span>
-      )}
-      {!c.es_cliente && !(c as Contacto & { es_precliente: boolean }).es_precliente && !c.es_facturadora && (
-        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 bg-zinc-700/60 text-zinc-300 ring-zinc-500/50">
-          Contacto
-        </span>
-      )}
+      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${badge.className}`}>
+        {badge.icon && <Shield className="h-2.5 w-2.5" />}
+        {badge.label}
+      </span>
     </div>
   );
 }
 
 // ─── Tabla ────────────────────────────────────────────────────────────────────
 
-function ContactosTable({ contactos }: { contactos: Contacto[] }) {
+function ContactosTable({ contactos }: { contactos: ContactoWithLinkRole[] }) {
   if (contactos.length === 0) {
     return (
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 py-12 text-center">
@@ -112,7 +117,7 @@ function ContactosTable({ contactos }: { contactos: Contacto[] }) {
   return (
     <div className="overflow-hidden rounded-xl border border-zinc-800">
       {/* Cabecera */}
-      <div className="grid grid-cols-[1fr_9rem_5rem_5rem_2rem_3.5rem] md:grid-cols-[1fr_9rem_12rem_8rem_5rem_5rem_2rem_3.5rem] gap-x-2 border-b border-zinc-800 bg-zinc-900 px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+      <div className="grid grid-cols-[1fr_9rem_5rem_5rem_2.5rem_4.5rem] md:grid-cols-[1fr_9rem_12rem_8rem_5rem_5rem_2.5rem_4.5rem] gap-x-2 border-b border-zinc-800 bg-zinc-900 px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
         <span>Nombre / Razón Social</span>
         <span>NIF</span>
         <span className="hidden md:block">Email</span>
@@ -126,16 +131,22 @@ function ContactosTable({ contactos }: { contactos: Contacto[] }) {
       {/* Filas */}
       <div className="divide-y divide-zinc-800/60 bg-zinc-950">
         {contactos.map((c) => {
-          const ext        = c as Contacto & { es_precliente: boolean; is_active: boolean };
-          const isMatriz   = c.es_facturadora;
-          const isCliente  = c.es_cliente && !isMatriz;
-          const isPrec     = ext.es_precliente;
+          const ext        = c as ContactoWithLinkRole & { es_precliente: boolean; is_active: boolean };
+          const linkRole   = c.company_links?.[0]?.role ?? null;
+          const role       = resolveDisplayRole({
+            linkRole,
+            esCliente: c.es_cliente,
+            esPrecliente: ext.es_precliente,
+            esFacturadora: c.es_facturadora,
+          });
           const isInactive = !ext.is_active;
           const health     = calcDataHealth(c);
-          const rowAccent  = isMatriz  ? "border-l-2 border-l-indigo-500/60 bg-indigo-500/[0.025]"
-                           : isCliente ? "border-l-2 border-l-teal-500/50   bg-teal-500/[0.018]"
-                           : isPrec    ? "border-l-2 border-l-amber-500/40  bg-amber-500/[0.015]"
-                           :             "border-l-2 border-l-transparent";
+          const rowAccent  = role === "Matriz"      ? "border-l-2 border-l-indigo-500/60 bg-indigo-500/[0.025]"
+                           : role === "Cliente"     ? "border-l-2 border-l-teal-500/50   bg-teal-500/[0.018]"
+                           : role === "Pre-cliente" ? "border-l-2 border-l-amber-500/40  bg-amber-500/[0.015]"
+                           : role === "Proveedor"   ? "border-l-2 border-l-purple-500/40 bg-purple-500/[0.015]"
+                           : role === "Contrario"   ? "border-l-2 border-l-red-500/40    bg-red-500/[0.015]"
+                           :                          "border-l-2 border-l-transparent";
           return (
             <div
               key={c.id}
@@ -152,17 +163,17 @@ function ContactosTable({ contactos }: { contactos: Contacto[] }) {
                 aria-label={`Abrir ficha de ${getDisplayName(c)}`}
               />
 
-              <div className="relative grid grid-cols-[1fr_9rem_5rem_5rem_2rem_3.5rem] md:grid-cols-[1fr_9rem_12rem_8rem_5rem_5rem_2rem_3.5rem] items-center gap-x-2 px-5 py-3.5">
+              <div className="relative grid grid-cols-[1fr_9rem_5rem_5rem_2.5rem_4.5rem] md:grid-cols-[1fr_9rem_12rem_8rem_5rem_5rem_2.5rem_4.5rem] items-center gap-x-2 px-5 py-3.5">
                 {/* Nombre */}
                 <div className="flex min-w-0 items-center gap-2">
-                  {isMatriz && (
+                  {role === "Matriz" && (
                     <Shield className="h-3.5 w-3.5 shrink-0 text-[var(--badge-matriz-text)]" />
                   )}
                   <span className={`truncate text-sm font-medium ${
-                    isMatriz  ? "text-[var(--badge-matriz-text)] font-semibold"
-                    : isCliente ? "text-[var(--badge-cliente-text)]"
-                    : isPrec    ? "text-[var(--badge-prec-text)]"
-                    :             "text-zinc-100"
+                    role === "Matriz"      ? "text-[var(--badge-matriz-text)] font-semibold"
+                    : role === "Cliente"     ? "text-[var(--badge-cliente-text)]"
+                    : role === "Pre-cliente" ? "text-[var(--badge-prec-text)]"
+                    :                          "text-zinc-100"
                   }`}>
                     {getDisplayName(c)}
                   </span>
@@ -202,7 +213,7 @@ function ContactosTable({ contactos }: { contactos: Contacto[] }) {
                   >
                     Editar
                   </a>
-                  {!isMatriz && <DeleteButton id={c.id} />}
+                  {role !== "Matriz" && <DeleteButton id={c.id} />}
                 </div>
               </div>
             </div>
@@ -215,14 +226,14 @@ function ContactosTable({ contactos }: { contactos: Contacto[] }) {
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
-export function ContactosClient({ contactos: initialContactos }: { contactos: Contacto[] }) {
+export function ContactosClient({ contactos: initialContactos }: { contactos: ContactoWithLinkRole[] }) {
   const { tenant, isSuperAdmin } = useTenant();
   const [tab,   setTab]   = useState<Tab>("todos");
   const [query, setQuery] = useState("");
 
   // ── @Scope-Guard: filtrado por tenant activo ──────────────────────────────
   // SSR carga todos los contactos (sin tenant). El cliente re-fetcha filtrado.
-  const [contactos, setContactos] = useState<Contacto[]>(initialContactos);
+  const [contactos, setContactos] = useState<ContactoWithLinkRole[]>(initialContactos);
   const [showAll, setShowAll]     = useState(false); // bypass CEO
   const [isLoading, startTransition] = useTransition();
 

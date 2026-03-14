@@ -7,7 +7,6 @@ import {
   Briefcase,
   ShieldCheck,
   Network,
-  FolderLock,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useTenant } from "@/lib/context/TenantContext";
@@ -18,7 +17,6 @@ const ICON_MAP: Record<string, LucideIcon> = {
   operativa:  Briefcase,
   admin:      ShieldCheck,
   ecosistema: Network,
-  boveda:     FolderLock,
 };
 
 interface TabBarProps {

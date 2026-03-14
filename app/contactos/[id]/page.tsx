@@ -18,7 +18,6 @@ import {
   Briefcase,
   ShieldCheck,
   Network,
-  FolderLock,
   Activity,
   Phone,
   Mail,
@@ -31,7 +30,6 @@ import { TabOperativa }       from "@/app/contactos/_modules/ficha/TabOperativa"
 import { TabAdmin }           from "@/app/contactos/_modules/ficha/TabAdmin";
 import { TabEcosistema }      from "@/app/contactos/_modules/ficha/TabEcosistema";
 import { CloneStructureButton } from "@/app/contactos/_modules/ficha/CloneStructureButton";
-import { TabBovedaWrapper }     from "@/app/contactos/_modules/ficha/TabBovedaWrapper";
 import { IsActiveToggle }     from "@/app/contactos/_modules/ficha/IsActiveToggle";
 import { RolesPanel }         from "@/app/contactos/_modules/ficha/RolesPanel";
 import { DataHealthCircle }   from "@/app/contactos/_modules/shared/DataHealthCircle";
@@ -39,6 +37,7 @@ import { calcDataHealth }     from "@/lib/utils/dataHealth";
 import { EntityActions }      from "@/app/contactos/_modules/ficha/EntityActions";
 import { CommandCenter, AssignedTagsStrip, ClassificationToggle } from "@/app/contactos/_modules/ficha/CommandCenter";
 import { TabBar }             from "@/app/contactos/_modules/ficha/TabBar";
+import { CrossTenantBadge }   from "@/app/contactos/_modules/ficha/CrossTenantBadge";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -69,7 +68,7 @@ function getInitials(displayName: string): string {
 
 // ─── Tab config (compacta) ──────────────────────────────────────────────────
 
-type TabValue = "identity" | "filiacion" | "operativa" | "admin" | "ecosistema" | "boveda";
+type TabValue = "identity" | "filiacion" | "operativa" | "admin" | "ecosistema";
 
 const TAB_META: Record<TabValue, { label: string; icon: LucideIcon; description: string }> = {
   identity:   { label: "Identidad",   icon: Activity,    description: "Datos clave y estado del contacto." },
@@ -77,10 +76,9 @@ const TAB_META: Record<TabValue, { label: string; icon: LucideIcon; description:
   operativa:  { label: "Operativa",   icon: Briefcase,   description: "Expedientes activos y tareas pendientes." },
   admin:      { label: "Admin",       icon: ShieldCheck, description: "Ciclo de vida, auditoria y RGPD." },
   ecosistema: { label: "Ecosistema",  icon: Network,     description: "Relaciones y red de contactos." },
-  boveda:     { label: "Boveda",      icon: FolderLock,  description: "Documentos y certificados." },
 };
 
-const TAB_ORDER: TabValue[] = ["identity", "filiacion", "operativa", "admin", "ecosistema", "boveda"];
+const TAB_ORDER: TabValue[] = ["identity", "filiacion", "operativa", "admin", "ecosistema"];
 
 // ─── Tab Placeholder ────────────────────────────────────────────────────────
 
@@ -113,6 +111,13 @@ export default async function ContactoFichaPage({
     include: { direcciones: true, canales: true },
   });
   if (!contacto) notFound();
+
+  // Vínculos cross-tenant (para badge "También en LW/LX" + role per-tenant)
+  const companyLinks = await prisma.contactoCompanyLink.findMany({
+    where: { contacto_id: id },
+    select: { company_id: true, role: true },
+  });
+  const linkedCompanyIds = companyLinks.map((l) => l.company_id);
 
   const displayName = getDisplayName(contacto);
   const initials    = getInitials(displayName);
@@ -183,9 +188,12 @@ export default async function ContactoFichaPage({
 
                 {/* Name + type + badges */}
                 <div className="min-w-0 flex-1">
-                  <h1 className="text-sm font-semibold text-zinc-100 leading-tight truncate">
-                    {displayName}
-                  </h1>
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-sm font-semibold text-zinc-100 leading-tight truncate">
+                      {displayName}
+                    </h1>
+                    <CrossTenantBadge linkedCompanyIds={linkedCompanyIds} />
+                  </div>
                   <p className="text-[11px] text-zinc-500">
                     {contacto.tipo === ContactoTipo.PERSONA_JURIDICA ? "Persona Juridica" : "Persona Fisica"}
                     {" · "}
@@ -199,6 +207,7 @@ export default async function ContactoFichaPage({
                     initialEsCliente={contacto.es_cliente}
                     initialEsPrecliente={contacto.es_precliente}
                     initialEsFacturadora={contacto.es_facturadora}
+                    companyLinks={companyLinks}
                   />
                 </div>
               </div>
@@ -299,9 +308,7 @@ export default async function ContactoFichaPage({
               />
             ) : activeTab === "ecosistema" ? (
               <TabEcosistema contactoId={contacto.id} />
-            ) : (
-              <TabBovedaWrapper contactoId={contacto.id} />
-            )}
+            ) : null}
           </div>
         </div>
       </CommandCenter>

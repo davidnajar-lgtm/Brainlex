@@ -21,6 +21,7 @@ import type { DetectedAddress } from "@/app/contactos/_modules/shared/CompanyAut
 import { createContacto, resurrectionRestoreContacto, vincularContactoAMatriz } from "@/lib/modules/entidades/actions/contactos.actions";
 import type { InlineAddressData } from "@/lib/modules/entidades/actions/contactos.actions";
 import { useTenant } from "@/lib/context/TenantContext";
+import { LINK_ROLES } from "@/lib/modules/entidades/services/linkRole.service";
 import type {
   CreateContactoInput,
   ContactoFieldErrors,
@@ -149,6 +150,7 @@ export default function NuevoContactoPage() {
   };
   const [crossMatrixConflict, setCrossMatrixConflict] =
     useState<CrossMatrixConflict | null>(null);
+  const [crossMatrixRole, setCrossMatrixRole] = useState<string>("Cliente");
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -348,6 +350,23 @@ export default function NuevoContactoPage() {
                 <span className="font-semibold text-purple-300">{tenant.nombre}</span>{" "}
                 sin duplicar el registro.
               </p>
+
+              {/* Selector de rol para el vínculo */}
+              <div className="mt-2.5 flex items-center gap-2">
+                <label className="text-[11px] text-purple-400/70 whitespace-nowrap">
+                  Vincular como:
+                </label>
+                <select
+                  value={crossMatrixRole}
+                  onChange={(e) => setCrossMatrixRole(e.target.value)}
+                  className="rounded-md border border-purple-500/30 bg-purple-950/50 px-2 py-1 text-xs text-purple-200 outline-none focus:ring-1 focus:ring-purple-500/50"
+                >
+                  {LINK_ROLES.filter((r) => r !== "Matriz").map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
+
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -356,7 +375,8 @@ export default function NuevoContactoPage() {
                     startTransition(async () => {
                       const res = await vincularContactoAMatriz(
                         crossMatrixConflict.contactoId,
-                        tenant.id
+                        tenant.id,
+                        crossMatrixRole
                       );
                       if (res.ok) {
                         window.location.href = `/contactos/${crossMatrixConflict.contactoId}`;
@@ -368,7 +388,7 @@ export default function NuevoContactoPage() {
                   }}
                   className="flex items-center gap-1.5 rounded-lg bg-purple-500/20 px-3 py-1.5 text-xs font-semibold text-purple-300 transition-colors hover:bg-purple-500/30 disabled:opacity-50"
                 >
-                  {isPending ? "Importando…" : `Importar a ${tenant.shortLabel}`}
+                  {isPending ? "Importando…" : `Importar como ${crossMatrixRole} en ${tenant.shortLabel}`}
                 </button>
                 <button
                   type="button"

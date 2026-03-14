@@ -94,7 +94,7 @@ export const contactoRepository = {
    * Filtra vía JOIN con ContactoCompanyLink: solo contactos vinculados al tenant.
    * Si companyId es null → devuelve todos (bypass SuperAdmin / CEO).
    */
-  async findByCompany(companyId: string | null, skip = 0, take = 500): Promise<Contacto[]> {
+  async findByCompany(companyId: string | null, skip = 0, take = 500) {
     return prisma.contacto.findMany({
       where: {
         status: ContactoStatus.ACTIVE,
@@ -102,6 +102,9 @@ export const contactoRepository = {
           company_links: { some: { company_id: companyId } },
         }),
       },
+      include: companyId
+        ? { company_links: { where: { company_id: companyId }, select: { role: true }, take: 1 } }
+        : undefined,
       orderBy: { created_at: "desc" },
       skip,
       take,
@@ -115,24 +118,33 @@ export const contactoRepository = {
   async findByFiscalIdWithCompanyLinks(
     fiscal_id: string,
     fiscal_id_tipo: FiscalIdTipo
-  ): Promise<(Contacto & { company_links: { company_id: string }[] }) | null> {
+  ): Promise<(Contacto & { company_links: { company_id: string; role: string | null }[] }) | null> {
     return prisma.contacto.findFirst({
       where: { fiscal_id, fiscal_id_tipo, status: ContactoStatus.ACTIVE },
-      include: { company_links: { select: { company_id: true } } },
+      include: { company_links: { select: { company_id: true, role: true } } },
+    });
+  },
+
+  /** Obtiene todos los links de un contacto (company_id + role). */
+  async getCompanyLinks(contactoId: string): Promise<{ company_id: string; role: string | null }[]> {
+    return prisma.contactoCompanyLink.findMany({
+      where: { contacto_id: contactoId },
+      select: { company_id: true, role: true },
     });
   },
 
   /**
    * Vincula un Contacto existente a una nueva matriz (tenant).
    * Idempotente: el @@unique([contacto_id, company_id]) previene duplicados.
+   * Si ya existe el link, actualiza el role.
    */
-  async linkToCompany(contactoId: string, companyId: string) {
+  async linkToCompany(contactoId: string, companyId: string, role?: string | null) {
     return prisma.contactoCompanyLink.upsert({
       where: {
         contacto_id_company_id: { contacto_id: contactoId, company_id: companyId },
       },
-      create: { contacto_id: contactoId, company_id: companyId },
-      update: {},
+      create: { contacto_id: contactoId, company_id: companyId, role: role ?? null },
+      update: { ...(role !== undefined && { role }) },
     });
   },
 

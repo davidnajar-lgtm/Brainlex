@@ -49,8 +49,13 @@ export type InlineAddressData = {
 // ─── Tipos resultado (solo para RSC — no re-exportados desde "use server") ────
 // Los clientes deben importar tipos desde @/lib/modules/entidades/validations/contacto.schema
 
+/** Contacto con link role opcional (presente cuando se filtra por tenant). */
+export type ContactoWithLinkRole = Contacto & {
+  company_links?: { role: string | null }[];
+};
+
 type GetContactosResult =
-  | { ok: true; data: Contacto[] }
+  | { ok: true; data: ContactoWithLinkRole[] }
   | { ok: false; error: string };
 
 type GetContactoResult =
@@ -1061,11 +1066,15 @@ export type VincularResult =
  * Usado cuando se detecta un duplicado inter-matriz: el contacto ya existe en
  * otra sociedad y el usuario confirma "Importar a esta matriz".
  *
+ * @param role — Rol del contacto en el tenant destino (Cliente, Proveedor, etc.)
+ *               Validado contra LINK_ROLES + regla anti-autofacturación.
+ *
  * Idempotente: el @@unique([contacto_id, company_id]) previene duplicados.
  */
 export async function vincularContactoAMatriz(
   contactoId: string,
-  companyId: string
+  companyId: string,
+  role?: string | null,
 ): Promise<VincularResult> {
   try {
     const contacto = await contactoRepository.findById(contactoId);
@@ -1074,7 +1083,28 @@ export async function vincularContactoAMatriz(
       return { ok: false, error: "Solo se pueden vincular contactos en estado ACTIVE." };
     }
 
-    await contactoRepository.linkToCompany(contactoId, companyId);
+    // Validar role si se proporciona
+    if (role) {
+      const { validateLinkRole, canAssignRole } = await import(
+        "@/lib/modules/entidades/services/linkRole.service"
+      );
+      if (!validateLinkRole(role)) {
+        return { ok: false, error: `Rol "${role}" no es válido.` };
+      }
+
+      // Anti-autofacturación: obtener links existentes
+      const existingLinks = await contactoRepository.getCompanyLinks(contactoId);
+      const check = canAssignRole({
+        role: role as import("@/lib/modules/entidades/services/linkRole.service").LinkRole,
+        targetCompanyId: companyId,
+        existingLinks,
+      });
+      if (!check.allowed) {
+        return { ok: false, error: check.reason! };
+      }
+    }
+
+    await contactoRepository.linkToCompany(contactoId, companyId, role);
     revalidatePath("/contactos", "layout");
     return { ok: true };
   } catch (err) {
