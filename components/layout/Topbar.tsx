@@ -8,6 +8,7 @@
 // ============================================================================
 
 import { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import WorldClock from "@/app/components/WorldClock";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useTenant, TENANTS, type TenantId } from "@/lib/context/TenantContext";
@@ -16,6 +17,7 @@ import { useTenant, TENANTS, type TenantId } from "@/lib/context/TenantContext";
 
 function TenantDropdown() {
   const { tenant, isSuperAdmin, setTenant } = useTenant();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const ref  = useRef<HTMLDivElement>(null);
 
@@ -104,7 +106,7 @@ function TenantDropdown() {
             {otherTenants.map((t) => (
               <button
                 key={t.id}
-                onClick={() => { setTenant(t.id); setOpen(false); }}
+                onClick={() => { setTenant(t.id); setOpen(false); router.refresh(); }}
                 className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
               >
                 <span

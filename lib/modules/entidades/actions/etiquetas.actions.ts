@@ -19,6 +19,7 @@ import {
   etiquetaAsignadaRepository,
   type EntidadTipo,
 } from "@/lib/modules/entidades/repositories/etiqueta.repository";
+import { contactoRepository } from "@/lib/modules/entidades/repositories/contacto.repository";
 import type { EtiquetaScope } from "@prisma/client";
 
 // ─── 5 cajones SALI — HARD-CODED, INAMOVIBLE ───────────────────────────────
@@ -293,6 +294,29 @@ export async function updateEtiquetaSoloSuperAdmin(
 }
 
 /**
+ * Actualiza la periodicidad de un Servicio: "PUNTUAL" | "ANUAL".
+ * Solo Admin. Las etiquetas de sistema no son editables.
+ */
+export async function updateEtiquetaPeriodicidad(
+  etiquetaId: string,
+  periodicidad: string
+): Promise<ActionResult> {
+  if (periodicidad !== "PUNTUAL" && periodicidad !== "ANUAL") {
+    return { ok: false, error: "Periodicidad inválida. Valores permitidos: PUNTUAL, ANUAL." };
+  }
+  const etiqueta = await etiquetaRepository.findById(etiquetaId);
+  if (!etiqueta) return { ok: false, error: "Etiqueta no encontrada" };
+  if (etiqueta.es_sistema) return { ok: false, error: "Las etiquetas de sistema no son editables" };
+  try {
+    await etiquetaRepository.update(etiquetaId, { periodicidad });
+    revalidatePath("/admin/taxonomia");
+    return { ok: true, data: undefined };
+  } catch {
+    return { ok: false, error: "Error al actualizar la periodicidad" };
+  }
+}
+
+/**
  * Restaura una etiqueta archivada (activo=false → activo=true).
  * Solo Admin. Permite recuperar etiquetas que fueron soft-deleted.
  */
@@ -424,6 +448,17 @@ export async function asignarEtiqueta(
   try {
     await etiquetaAsignadaRepository.assign(etiqueta_id, entidad_id, entidad_tipo, asignado_por);
 
+    // REGLA CISO — AuditLog
+    if (entidad_tipo === "CONTACTO") {
+      const etqInfo = await etiquetaRepository.findById(etiqueta_id);
+      await contactoRepository.appendAuditLog({
+        table_name: "etiquetas",
+        record_id:  entidad_id,
+        action:     "UPDATE",
+        notes:      `Etiqueta asignada: ${etqInfo?.nombre ?? etiqueta_id}`,
+      });
+    }
+
     // ── Blueprint Trigger Detection (Point 0 — Fase 0: solo log) ──────────
     // Detecta si la etiqueta asignada es Constructor o Año temporal.
     // En Fase 4+ esto disparará la creación real de carpetas en Drive.
@@ -454,6 +489,17 @@ export async function desasignarEtiqueta(
   entidad_tipo: EntidadTipo
 ): Promise<ActionResult> {
   try {
+    // REGLA CISO — AuditLog ANTES de mutar
+    if (entidad_tipo === "CONTACTO") {
+      const etqInfo = await etiquetaRepository.findById(etiqueta_id);
+      await contactoRepository.appendAuditLog({
+        table_name: "etiquetas",
+        record_id:  entidad_id,
+        action:     "UPDATE",
+        notes:      `Etiqueta retirada: ${etqInfo?.nombre ?? etiqueta_id}`,
+      });
+    }
+
     await etiquetaAsignadaRepository.unassign(etiqueta_id, entidad_id, entidad_tipo);
     revalidatePath(`/contactos/${entidad_id}`);
     return { ok: true, data: undefined };

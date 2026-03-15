@@ -84,7 +84,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
 
   const value: TenantContextValue = {
     tenant:       TENANTS[tenantId],
-    isSuperAdmin: true, // CEO siempre. Conectar con Supabase Auth en Fase 5
+    isSuperAdmin: false, // DEFAULT seguro. Conectar con Supabase Auth en Fase 5
     setTenant,
   };
 

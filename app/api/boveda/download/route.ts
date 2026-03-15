@@ -38,11 +38,14 @@ import type { UserSecurityContext, UserRole } from "@/lib/services/securityFilte
  * TODO(Auth): reemplazar por sesión real de Supabase Auth cuando se active.
  */
 function getUserContext(req: NextRequest): UserSecurityContext {
-  // DEV: permitir override por header (solo en desarrollo)
-  const devRole = req.headers.get("x-user-role") as UserRole | null;
-  if (devRole && ["SUPER_ADMIN", "ADMIN", "STAFF"].includes(devRole)) {
-    return { userId: "dev-user", role: devRole };
+  // DEV: permitir override por header SOLO en desarrollo local
+  if (process.env.NODE_ENV === "development") {
+    const devRole = req.headers.get("x-user-role") as UserRole | null;
+    if (devRole && ["SUPER_ADMIN", "ADMIN", "STAFF"].includes(devRole)) {
+      return { userId: "dev-user", role: devRole };
+    }
   }
+  // TODO(Auth): reemplazar por sesión real de Supabase Auth cuando se active
   // DEFAULT: STAFF (mínimo privilegio) hasta que Auth esté activo
   return { userId: "anonymous", role: "STAFF" };
 }
@@ -136,8 +139,13 @@ export async function GET(req: NextRequest) {
   // Obtener contexto de seguridad
   const user = getUserContext(req);
 
+  // @Scope-Guard — tenant filtering: STAFF/ADMIN solo ven carpetas de su tenant
+  // TODO(Auth): obtener companyId de la sesión real de Supabase Auth
+  const companyId = req.headers.get("x-company-id");
+  const tenantFilter = user.role === "SUPER_ADMIN" ? null : companyId;
+
   // Cargar carpetas con información de etiqueta para filtrado
-  const carpetasFlat = await carpetaRepository.findByContactoWithSecurity(contactoId);
+  const carpetasFlat = await carpetaRepository.findByContactoWithSecurity(contactoId, tenantFilter);
 
   if (carpetasFlat.length === 0) {
     return NextResponse.json(

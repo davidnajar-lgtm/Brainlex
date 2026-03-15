@@ -24,6 +24,7 @@ export type ContactoWithDependencyCounts = Contacto & {
 
 export type QuarantineContactRow = Contacto & {
   _count: { expedientes: number };
+  company_links?: { company_id: string }[];
 };
 
 export interface QuarantineData {
@@ -90,11 +91,57 @@ export const contactoRepository = {
   },
 
   /**
+   * Busca contactos ACTIVOS por nombre normalizado (exact match, case-insensitive).
+   * Usado por el Alta Rápida para detección de duplicados cuando no hay NIF.
+   * Busca en TODOS los tenants (cross-matrix).
+   */
+  async findByNormalizedName(
+    nombre: string,
+    apellido1?: string | null,
+    razonSocial?: string | null,
+  ): Promise<(Contacto & { company_links: { company_id: string; role: string | null }[] })[]> {
+    const where: Prisma.ContactoWhereInput = {
+      status: ContactoStatus.ACTIVE,
+      OR: [] as Prisma.ContactoWhereInput[],
+    };
+
+    // Buscar por nombre+apellido1 (PF) o razón social (PJ)
+    if (razonSocial?.trim()) {
+      (where.OR as Prisma.ContactoWhereInput[]).push({
+        razon_social: { equals: razonSocial.trim(), mode: "insensitive" },
+      });
+    }
+    if (nombre?.trim()) {
+      const nameFilter: Prisma.ContactoWhereInput = {
+        nombre: { equals: nombre.trim(), mode: "insensitive" },
+      };
+      if (apellido1?.trim()) {
+        nameFilter.apellido1 = { equals: apellido1.trim(), mode: "insensitive" };
+      }
+      (where.OR as Prisma.ContactoWhereInput[]).push(nameFilter);
+    }
+
+    if (!(where.OR as Prisma.ContactoWhereInput[]).length) return [];
+
+    return prisma.contacto.findMany({
+      where,
+      include: { company_links: { select: { company_id: true, role: true } } },
+      take: 5,
+    });
+  },
+
+  /**
    * @Scope-Guard — Devuelve Contactos ACTIVOS filtrados por tenant (company_id).
    * Filtra vía JOIN con ContactoCompanyLink: solo contactos vinculados al tenant.
    * Si companyId es null → devuelve todos (bypass SuperAdmin / CEO).
    */
-  async findByCompany(companyId: string | null, skip = 0, take = 500) {
+  async findByCompany(
+    companyId: string | null,
+    options?: { cursor?: string; take?: number },
+  ) {
+    const take = options?.take ?? 50;
+    const cursor = options?.cursor;
+
     return prisma.contacto.findMany({
       where: {
         status: ContactoStatus.ACTIVE,
@@ -102,12 +149,12 @@ export const contactoRepository = {
           company_links: { some: { company_id: companyId } },
         }),
       },
-      include: companyId
-        ? { company_links: { where: { company_id: companyId }, select: { role: true }, take: 1 } }
-        : undefined,
+      include: {
+        company_links: { select: { company_id: true, role: true } },
+      },
       orderBy: { created_at: "desc" },
-      skip,
-      take,
+      take: take + 1, // +1 para detectar si hay más páginas
+      ...(cursor && { cursor: { id: cursor }, skip: 1 }),
     });
   },
 
@@ -131,6 +178,21 @@ export const contactoRepository = {
       where: { contacto_id: contactoId },
       select: { company_id: true, role: true },
     });
+  },
+
+  /**
+   * Desvincula un Contacto de un tenant concreto.
+   * Elimina el ContactoCompanyLink sin tocar el Contacto global.
+   * Devuelve el número de links restantes tras la desvinculación.
+   */
+  async unlinkFromCompany(contactoId: string, companyId: string): Promise<{ remainingLinks: number }> {
+    await prisma.contactoCompanyLink.deleteMany({
+      where: { contacto_id: contactoId, company_id: companyId },
+    });
+    const remaining = await prisma.contactoCompanyLink.count({
+      where: { contacto_id: contactoId },
+    });
+    return { remainingLinks: remaining };
   },
 
   /**
@@ -239,10 +301,24 @@ export const contactoRepository = {
    * Devuelve el historial de AuditLog para un Contacto, más reciente primero.
    * Solo lectura — la tabla audit_logs es inmutable (sin UPDATE/DELETE).
    */
-  async findAuditLogs(recordId: string): Promise<AuditLog[]> {
+  async findAuditLogs(contactoId: string): Promise<AuditLog[]> {
     return prisma.auditLog.findMany({
-      where:   { table_name: "contactos", record_id: recordId },
+      where:   { record_id: contactoId },
       orderBy: { created_at: "desc" },
+    });
+  },
+
+  /**
+   * Devuelve los N registros de AuditLog más recientes para un contacto.
+   * Usado para el micro-timeline de la cabecera de la ficha.
+   * Filtra SOLO por table_name "contactos" para evitar que acciones de
+   * relaciones/evidencias contaminen el estado visual del contacto.
+   */
+  async findRecentAuditLogs(contactoId: string, take = 3): Promise<AuditLog[]> {
+    return prisma.auditLog.findMany({
+      where:   { record_id: contactoId, table_name: "contactos" },
+      orderBy: { created_at: "desc" },
+      take,
     });
   },
 
@@ -326,7 +402,10 @@ export const contactoRepository = {
     return prisma.contacto.findMany({
       where:   { status: ContactoStatus.QUARANTINE },
       orderBy: { quarantine_expires_at: "asc" },
-      include: { _count: { select: { expedientes: true } } },
+      include: {
+        _count: { select: { expedientes: true } },
+        company_links: { select: { company_id: true } },
+      },
     }) as Promise<QuarantineContactRow[]>;
   },
 

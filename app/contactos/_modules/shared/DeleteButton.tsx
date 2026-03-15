@@ -18,19 +18,23 @@
 // ============================================================================
 
 import { useTransition, useState, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { ShieldAlert, Trash2, Archive, AlertTriangle } from "lucide-react";
 import { deleteContacto } from "@/lib/modules/entidades/actions/contactos.actions";
 
-export function DeleteButton({ id }: { id: string }) {
+export function DeleteButton({ id, companyId }: { id: string; companyId?: string }) {
   const [isPending, startTransition] = useTransition();
   const [open,      setOpen]         = useState(false);
   const [result,    setResult]       = useState<
     | null
     | { type: "error";       message: string }
     | { type: "quarantined"; message: string; expires_at: Date }
+    | { type: "phantom" }
+    | { type: "unlinked";    message: string }
   >(null);
 
   const reasonRef = useRef<HTMLTextAreaElement>(null);
+  const router = useRouter();
 
   function openModal() {
     setResult(null);
@@ -47,7 +51,7 @@ export function DeleteButton({ id }: { id: string }) {
     setResult(null);
 
     startTransition(async () => {
-      const res = await deleteContacto(id, reason);
+      const res = await deleteContacto(id, reason, companyId);
 
       if (!res) {
         // undefined → redirect ya ejecutado (PURGE exitoso)
@@ -55,7 +59,19 @@ export function DeleteButton({ id }: { id: string }) {
       }
 
       if (res.ok === false) {
+        // Phantom contact: doesn't exist in DB — auto-refresh list
+        if (res.error.includes("no encontrado")) {
+          setResult({ type: "phantom" });
+          setTimeout(() => { router.refresh(); setOpen(false); }, 2000);
+          return;
+        }
         setResult({ type: "error", message: res.error });
+        return;
+      }
+
+      if (res.ok === "unlinked") {
+        setResult({ type: "unlinked", message: res.message });
+        setTimeout(() => { router.refresh(); setOpen(false); }, 2500);
         return;
       }
 
@@ -102,8 +118,46 @@ export function DeleteButton({ id }: { id: string }) {
               </div>
             </div>
 
-            {/* ── Resultado: QUARANTINE (el agente bloqueó y archivó) ── */}
-            {result?.type === "quarantined" ? (
+            {/* ── Resultado: UNLINKED (desvinculado de este tenant) ── */}
+            {result?.type === "unlinked" ? (
+              <div className="px-6 py-5 space-y-4">
+                <div className="flex items-start gap-3 rounded-lg border border-blue-700/40 bg-blue-950/30 p-4">
+                  <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-blue-400" />
+                  <div>
+                    <p className="text-sm font-semibold text-blue-300">
+                      Contacto desvinculado
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-blue-500/80">
+                      {result.message}
+                    </p>
+                    <p className="mt-2 text-xs text-blue-600">
+                      El contacto no ha sido eliminado porque pertenece a otras empresas del Holding.
+                      El listado se actualizará automáticamente.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+            ) : /* ── Resultado: PHANTOM (contacto fantasma — no existe en BD) ── */
+            result?.type === "phantom" ? (
+              <div className="px-6 py-5 space-y-4">
+                <div className="flex items-start gap-3 rounded-lg border border-zinc-700/40 bg-zinc-900/60 p-4">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-zinc-400" />
+                  <div>
+                    <p className="text-sm font-semibold text-zinc-200">
+                      Contacto inexistente
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                      Este contacto ya no existe en la base de datos. Era una entrada
+                      residual del caché del navegador. El listado se actualizará
+                      automáticamente.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+            ) : /* ── Resultado: QUARANTINE (el agente bloqueó y archivó) ── */
+            result?.type === "quarantined" ? (
               <div className="px-6 py-5 space-y-4">
                 <div className="flex items-start gap-3 rounded-lg border border-amber-700/40 bg-amber-950/30 p-4">
                   <Archive className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />

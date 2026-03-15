@@ -10,6 +10,7 @@ import { useRef, useEffect, useState, useActionState } from "react";
 import { useRouter } from "next/navigation";
 import { MapPin, Plus, X, Search, PenLine } from "lucide-react";
 import { crearDireccion, editarDireccion } from "@/lib/modules/entidades/actions/filiacion.actions";
+import { useTenant } from "@/lib/context/TenantContext";
 import { normalizeAddress } from "@/lib/utils/normalizeAddress";
 import { CountrySelectorField } from "./CountrySelectorField";
 import { PlacesAutocompleteInput } from "./PlacesAutocompleteInput";
@@ -31,29 +32,7 @@ export type DireccionInitialData = {
 
 // ─── Helpers de formateo (aplicados en onChange) ──────────────────────────────
 
-function applyTitleCase(e: React.ChangeEvent<HTMLInputElement>) {
-  const pos = e.target.selectionStart;
-  e.target.value = e.target.value.replace(/(?:^|\s)\S/g, (c) => c.toUpperCase());
-  e.target.setSelectionRange(pos, pos);
-}
-
-function applyUpperCase(e: React.ChangeEvent<HTMLInputElement>) {
-  const pos = e.target.selectionStart;
-  e.target.value = e.target.value.toUpperCase();
-  e.target.setSelectionRange(pos, pos);
-}
-
-// ─── Helpers de estilo ────────────────────────────────────────────────────────
-
-const inputCls = (hasError: boolean) =>
-  `w-full rounded-lg border px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 bg-zinc-800 focus:outline-none transition-colors ${
-    hasError
-      ? "border-red-500/70 focus:border-red-400"
-      : "border-zinc-700 focus:border-zinc-500"
-  }`;
-
-const labelCls =
-  "block text-[11px] font-semibold uppercase tracking-wider text-zinc-500 mb-1";
+import { applyTitleCase, applyUpperCase, inputCls, labelCls } from "@/lib/utils/formHelpers";
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 
@@ -61,10 +40,13 @@ export function DireccionFormModal({
   contactoId,
   initialData,
   onClose,
+  autoOpen = false,
 }: {
   contactoId:   string;
   initialData?: DireccionInitialData;
   onClose?:     () => void;
+  /** Abre el dialog automáticamente al montar (modo embebido, sin botón disparador). */
+  autoOpen?:    boolean;
 }) {
   const dialogRef         = useRef<HTMLDialogElement>(null);
   const formRef           = useRef<HTMLFormElement>(null);
@@ -74,6 +56,7 @@ export function DireccionFormModal({
   const backdropDownRef   = useRef(false);
   const calleHiddenRef    = useRef<HTMLInputElement>(null);
   const router       = useRouter();
+  const { tenant }   = useTenant();
 
   // Modo edición: action pre-configurada con bind para pasar id + contactoId
   const action = initialData
@@ -115,9 +98,9 @@ export function DireccionFormModal({
     }
   }, [modoManual, calleManualValue]);
 
-  // Modo edición: auto-abrir el dialog al montar el componente
+  // Auto-abrir el dialog al montar: modo edición o modo embebido (autoOpen)
   useEffect(() => {
-    if (initialData) {
+    if (initialData || autoOpen) {
       dialogRef.current?.showModal();
     }
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
@@ -133,7 +116,7 @@ export function DireccionFormModal({
 
   // Éxito: cerrar + refrescar RSC
   useEffect(() => {
-    if (state?.success === true) {
+    if (state?.ok === true) {
       dialogRef.current?.close();
       router.refresh();
     }
@@ -172,14 +155,14 @@ export function DireccionFormModal({
     if (cpRef.current) cpRef.current.value = v.toUpperCase();
   };
 
-  const errors      = showErrors && state?.success === false ? state.errors : {};
+  const errors      = showErrors && state?.ok === false ? (state.fieldErrors ?? {}) : {};
   const showEtiqueta = tipoDireccion === "WORKPLACE" || tipoDireccion === "OTRO";
   const isEdit       = !!initialData;
 
   return (
     <>
-      {/* ── Botón disparador (solo en modo creación) ── */}
-      {!isEdit && (
+      {/* ── Botón disparador (solo en modo creación sin autoOpen) ── */}
+      {!isEdit && !autoOpen && (
         <button
           type="button"
           onClick={openDialog}
@@ -195,7 +178,7 @@ export function DireccionFormModal({
         ref={dialogRef}
         onMouseDown={(e) => { backdropDownRef.current = e.target === e.currentTarget; }}
         onClick={(e)     => { if (backdropDownRef.current && e.target === e.currentTarget) closeDialog(); }}
-        className="m-auto w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-0 shadow-2xl backdrop:bg-black/70"
+        className="m-auto w-full max-w-md overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 p-0 shadow-2xl backdrop:bg-black/70"
       >
         <form
           ref={formRef}
@@ -203,6 +186,7 @@ export function DireccionFormModal({
           onSubmit={() => setShowErrors(true)}
         >
           <input type="hidden" name="contactoId" value={contactoId} />
+          <input type="hidden" name="companyId" value={tenant.id} />
 
           {/* Cabecera dinámica */}
           <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">

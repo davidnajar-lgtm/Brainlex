@@ -18,9 +18,9 @@ import {
   Briefcase,
   ShieldCheck,
   Network,
-  Activity,
   Phone,
   Mail,
+  AlertTriangle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { prisma } from "@/lib/prisma";
@@ -33,11 +33,15 @@ import { CloneStructureButton } from "@/app/contactos/_modules/ficha/CloneStruct
 import { IsActiveToggle }     from "@/app/contactos/_modules/ficha/IsActiveToggle";
 import { RolesPanel }         from "@/app/contactos/_modules/ficha/RolesPanel";
 import { DataHealthCircle }   from "@/app/contactos/_modules/shared/DataHealthCircle";
-import { calcDataHealth }     from "@/lib/utils/dataHealth";
+import { calcDataHealth, getMissingFields } from "@/lib/utils/dataHealth";
 import { EntityActions }      from "@/app/contactos/_modules/ficha/EntityActions";
 import { CommandCenter, AssignedTagsStrip, ClassificationToggle } from "@/app/contactos/_modules/ficha/CommandCenter";
 import { TabBar }             from "@/app/contactos/_modules/ficha/TabBar";
 import { CrossTenantBadge }   from "@/app/contactos/_modules/ficha/CrossTenantBadge";
+import { TenantScopeGuard }  from "@/app/contactos/_modules/ficha/TenantScopeGuard";
+import { isFiscalPending }   from "@/lib/modules/entidades/utils/fiscalPending";
+import { MicroTimeline }     from "@/app/contactos/_modules/ficha/MicroTimeline";
+import { contactoRepository } from "@/lib/modules/entidades/repositories/contacto.repository";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -68,17 +72,16 @@ function getInitials(displayName: string): string {
 
 // ─── Tab config (compacta) ──────────────────────────────────────────────────
 
-type TabValue = "identity" | "filiacion" | "operativa" | "admin" | "ecosistema";
+type TabValue = "filiacion" | "operativa" | "admin" | "ecosistema";
 
 const TAB_META: Record<TabValue, { label: string; icon: LucideIcon; description: string }> = {
-  identity:   { label: "Identidad",   icon: Activity,    description: "Datos clave y estado del contacto." },
-  filiacion:  { label: "Filiacion",   icon: Contact,     description: "Domicilios, canales de comunicacion y preferencias." },
+  filiacion:  { label: "Filiacion",   icon: Contact,     description: "Identidad, canales, domicilios y datos del contacto." },
   operativa:  { label: "Operativa",   icon: Briefcase,   description: "Expedientes activos y tareas pendientes." },
   admin:      { label: "Admin",       icon: ShieldCheck, description: "Ciclo de vida, auditoria y RGPD." },
   ecosistema: { label: "Ecosistema",  icon: Network,     description: "Relaciones y red de contactos." },
 };
 
-const TAB_ORDER: TabValue[] = ["identity", "filiacion", "operativa", "admin", "ecosistema"];
+const TAB_ORDER: TabValue[] = ["filiacion", "operativa", "admin", "ecosistema"];
 
 // ─── Tab Placeholder ────────────────────────────────────────────────────────
 
@@ -101,16 +104,49 @@ export default async function ContactoFichaPage({
   searchParams,
 }: {
   params:       Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; embed?: string }>;
 }) {
   const { id }  = await params;
-  const { tab } = await searchParams;
+  const { tab, embed } = await searchParams;
+  const isEmbed = embed === "1";
 
   const contacto = await prisma.contacto.findUnique({
     where: { id },
     include: { direcciones: true, canales: true },
   });
   if (!contacto) notFound();
+
+  const activeTab = (TAB_ORDER.includes(tab as TabValue) ? tab : "filiacion") as TabValue;
+  const displayName = getDisplayName(contacto);
+
+  // ── Embed mode: render ONLY the tab content (for iframe in FichaPreviewModal) ──
+  if (isEmbed) {
+    return (
+      <div className="h-full overflow-y-auto bg-zinc-950 p-4">
+        {activeTab === "filiacion" ? (
+          <TabFiliacionClient
+            contacto={contacto}
+            displayName={displayName}
+            entityActionsSlot={null}
+            cloneButtonSlot={null}
+          />
+        ) : activeTab === "operativa" ? (
+          <TabOperativa contactoId={contacto.id} />
+        ) : activeTab === "admin" ? (
+          <TabAdmin
+            contactoId={contacto.id}
+            status={contacto.status}
+            quarantineReason={contacto.quarantine_reason}
+            quarantineExpiresAt={contacto.quarantine_expires_at}
+          />
+        ) : activeTab === "ecosistema" ? (
+          <TabEcosistema contactoId={contacto.id} contactoName={displayName} contactoTipo={contacto.tipo} />
+        ) : null}
+      </div>
+    );
+  }
+
+  // ── Full mode: complete Command Center layout ──────────────────────────────
 
   // Vínculos cross-tenant (para badge "También en LW/LX" + role per-tenant)
   const companyLinks = await prisma.contactoCompanyLink.findMany({
@@ -119,17 +155,22 @@ export default async function ContactoFichaPage({
   });
   const linkedCompanyIds = companyLinks.map((l) => l.company_id);
 
-  const displayName = getDisplayName(contacto);
-  const initials    = getInitials(displayName);
-  const healthScore = calcDataHealth(contacto);
+  // Últimos 3 eventos del AuditLog para el micro-timeline del hero
+  const recentAudit = await contactoRepository.findRecentAuditLogs(id, 3);
+
+  const initials      = getInitials(displayName);
+  const healthScore   = calcDataHealth(contacto);
+  const missing       = getMissingFields(contacto);
+  const healthTooltip = healthScore === 100
+    ? "Ficha completa"
+    : `Salud ${healthScore}% — Falta: ${missing.join(", ")}`;
+  const fiscalPending = isFiscalPending(contacto.fiscal_id_tipo, contacto.fiscal_id);
 
   const roles = [
     contacto.es_facturadora                         ? "Matriz"      : null,
     contacto.es_cliente && !contacto.es_facturadora ? "Cliente"     : null,
     contacto.es_precliente                          ? "Pre-cliente" : null,
   ].filter(Boolean) as string[];
-
-  const activeTab = (TAB_ORDER.includes(tab as TabValue) ? tab : "identity") as TabValue;
 
   // Primary address
   const addr =
@@ -140,6 +181,9 @@ export default async function ContactoFichaPage({
 
   return (
     <div className="-m-6 flex flex-col" style={{ height: "calc(100vh - 3.5rem - 3px)" }}>
+      {/* Guard: redirige al listado si el contacto no pertenece al tenant activo */}
+      <TenantScopeGuard linkedCompanyIds={linkedCompanyIds} />
+
       {/* ── Breadcrumb bar (fixed, thin) ─────────────────────────────────── */}
       <div className="flex items-center gap-4 border-b border-zinc-800 px-4 py-2 shrink-0">
         <Link
@@ -175,6 +219,7 @@ export default async function ContactoFichaPage({
                       strokeWidth={3}
                       showLabel={false}
                       className="absolute inset-0"
+                      tooltip={healthTooltip}
                     />
                     <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800 text-lg font-bold text-zinc-200 m-[2px]">
                       {initials || "?"}
@@ -193,6 +238,15 @@ export default async function ContactoFichaPage({
                       {displayName}
                     </h1>
                     <CrossTenantBadge linkedCompanyIds={linkedCompanyIds} />
+                    {fiscalPending && (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-300 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/20"
+                        title="Datos fiscales pendientes — no apto para facturación"
+                      >
+                        <AlertTriangle className="h-2.5 w-2.5" />
+                        Sin NIF
+                      </span>
+                    )}
                   </div>
                   <p className="text-[11px] text-zinc-500">
                     {contacto.tipo === ContactoTipo.PERSONA_JURIDICA ? "Persona Juridica" : "Persona Fisica"}
@@ -236,9 +290,12 @@ export default async function ContactoFichaPage({
                 </div>
               )}
 
+              {/* Micro-timeline — resumen de actividad reciente */}
+              <MicroTimeline entries={recentAudit} />
+
               {/* Key data row */}
               <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-                {contacto.fiscal_id && (
+                {contacto.fiscal_id ? (
                   <div>
                     <dt className="text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
                       {contacto.fiscal_id_tipo ?? "ID Fiscal"}
@@ -247,7 +304,14 @@ export default async function ContactoFichaPage({
                       {contacto.fiscal_id}
                     </dd>
                   </div>
-                )}
+                ) : fiscalPending ? (
+                  <div className="col-span-2">
+                    <div className="flex items-center gap-1.5 rounded-md bg-amber-100 px-2.5 py-1.5 text-[11px] text-amber-800 ring-1 ring-amber-300 dark:bg-amber-950/20 dark:text-amber-400 dark:ring-amber-800/30">
+                      <AlertTriangle className="h-3 w-3 shrink-0" />
+                      Datos fiscales pendientes — no apto para facturación oficial
+                    </div>
+                  </div>
+                ) : null}
                 {addr && (
                   <div className="col-span-2">
                     <dt className="text-[10px] font-semibold uppercase tracking-wider text-zinc-600">Direccion</dt>
@@ -274,29 +338,25 @@ export default async function ContactoFichaPage({
 
           {/* ── Tab content (scrollable area) ──────────────────────────── */}
           <div data-slot="tab-content" className="flex-1 overflow-y-auto p-4">
-            {activeTab === "identity" ? (
-              <div className="space-y-4">
-                {contacto.notas && (
-                  <div>
-                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">Notas</p>
-                    <p className="whitespace-pre-wrap text-xs leading-relaxed text-zinc-500">{contacto.notas}</p>
-                  </div>
-                )}
-                <EntityActions
-                  contact={{
-                    id:       contacto.id,
-                    name:     displayName,
-                    fiscalId: contacto.fiscal_id       ?? undefined,
-                    email:    contacto.email_principal  ?? undefined,
-                    phone:    contacto.telefono_movil   ?? contacto.telefono_fijo ?? undefined,
-                    roles,
-                    status:   contacto.status,
-                  }}
-                />
-                <CloneStructureButton contactoId={contacto.id} />
-              </div>
-            ) : activeTab === "filiacion" ? (
-              <TabFiliacionClient contacto={contacto} displayName={displayName} />
+            {activeTab === "filiacion" ? (
+              <TabFiliacionClient
+                contacto={contacto}
+                displayName={displayName}
+                entityActionsSlot={
+                  <EntityActions
+                    contact={{
+                      id:       contacto.id,
+                      name:     displayName,
+                      fiscalId: contacto.fiscal_id       ?? undefined,
+                      email:    contacto.email_principal  ?? undefined,
+                      phone:    contacto.telefono_movil   ?? contacto.telefono_fijo ?? undefined,
+                      roles,
+                      status:   contacto.status,
+                    }}
+                  />
+                }
+                cloneButtonSlot={<CloneStructureButton contactoId={contacto.id} />}
+              />
             ) : activeTab === "operativa" ? (
               <TabOperativa contactoId={contacto.id} />
             ) : activeTab === "admin" ? (
@@ -307,7 +367,7 @@ export default async function ContactoFichaPage({
                 quarantineExpiresAt={contacto.quarantine_expires_at}
               />
             ) : activeTab === "ecosistema" ? (
-              <TabEcosistema contactoId={contacto.id} />
+              <TabEcosistema contactoId={contacto.id} contactoName={displayName} contactoTipo={contacto.tipo} />
             ) : null}
           </div>
         </div>

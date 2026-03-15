@@ -9,9 +9,17 @@
 // ============================================================================
 
 import { prisma } from "@/lib/prisma";
-import type { Contacto, Prisma, Relacion, TipoRelacion } from "@prisma/client";
+import type { Contacto, EtiquetaScope, Prisma, Relacion, TipoRelacion } from "@prisma/client";
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
+
+export type SedeVinculadaInfo = {
+  id: string;
+  tipo: string;
+  etiqueta: string | null;
+  calle: string;
+  ciudad: string | null;
+};
 
 export type RelacionCompleta = Relacion & {
   tipo_relacion: TipoRelacion;
@@ -21,6 +29,10 @@ export type RelacionCompleta = Relacion & {
   cargo?:                string | null;
   departamento_interno?: string | null;
   sede_vinculada_id?:    string | null;
+  /** Porcentaje de participación societaria (0–100). Solo tipos societarios. */
+  porcentaje?:           number | null;
+  /** Sede vinculada resolveada (puede no existir si la dirección se borró) */
+  sede_vinculada?:       SedeVinculadaInfo | null;
 };
 
 // ─── TipoRelacion ─────────────────────────────────────────────────────────────
@@ -28,6 +40,14 @@ export type RelacionCompleta = Relacion & {
 export const tipoRelacionRepository = {
   async findAll(): Promise<TipoRelacion[]> {
     return prisma.tipoRelacion.findMany({
+      orderBy: [{ categoria: "asc" }, { nombre: "asc" }],
+    });
+  },
+
+  /** Filtra tipos por scope del tenant activo (GLOBAL + tenant-specific). */
+  async findByScope(tenantScope: EtiquetaScope): Promise<TipoRelacion[]> {
+    return prisma.tipoRelacion.findMany({
+      where: { scope: { in: ["GLOBAL", tenantScope] } },
       orderBy: [{ categoria: "asc" }, { nombre: "asc" }],
     });
   },
@@ -50,7 +70,12 @@ export const tipoRelacionRepository = {
   },
 
   async countRelaciones(id: string): Promise<number> {
-    return prisma.relacion.count({ where: { tipo_relacion_id: id } });
+    try {
+      return await prisma.relacion.count({ where: { tipo_relacion_id: id, activa: true } });
+    } catch {
+      // Pre-migración fallback
+      return prisma.relacion.count({ where: { tipo_relacion_id: id } });
+    }
   },
 };
 
@@ -65,9 +90,9 @@ const contactoSelect = {
 } as const;
 
 export const relacionRepository = {
-  /** Todas las relaciones en las que participa un contacto (como origen o destino). */
+  /** Relaciones ACTIVAS en las que participa un contacto (como origen o destino). */
   async findByContacto(contactoId: string): Promise<RelacionCompleta[]> {
-    return prisma.relacion.findMany({
+    const relaciones = await prisma.relacion.findMany({
       where: {
         OR: [{ origen_id: contactoId }, { destino_id: contactoId }],
       },
@@ -77,7 +102,26 @@ export const relacionRepository = {
         destino:       { select: contactoSelect },
       },
       orderBy: { created_at: "asc" },
-    }) as Promise<RelacionCompleta[]>;
+    });
+
+    // Resolver sede_vinculada (FK lógica, no Prisma relation)
+    const sedeIds = relaciones
+      .map((r) => r.sede_vinculada_id)
+      .filter((id): id is string => id !== null);
+
+    let sedeMap = new Map<string, SedeVinculadaInfo>();
+    if (sedeIds.length > 0) {
+      const sedes = await prisma.direccion.findMany({
+        where: { id: { in: sedeIds } },
+        select: { id: true, tipo: true, etiqueta: true, calle: true, ciudad: true },
+      });
+      sedeMap = new Map(sedes.map((s) => [s.id, s]));
+    }
+
+    return relaciones.map((r) => ({
+      ...r,
+      sede_vinculada: r.sede_vinculada_id ? sedeMap.get(r.sede_vinculada_id) ?? null : null,
+    })) as RelacionCompleta[];
   },
 
   async findById(id: string): Promise<RelacionCompleta | null> {
@@ -99,6 +143,7 @@ export const relacionRepository = {
     cargo?:                string;
     departamento_interno?: string;
     sede_vinculada_id?:    string;
+    porcentaje?:           number;
   }): Promise<Relacion> {
     return prisma.relacion.create({ data });
   },
@@ -108,8 +153,55 @@ export const relacionRepository = {
     cargo?:                string | null;
     departamento_interno?: string | null;
     sede_vinculada_id?:    string | null;
+    porcentaje?:           number | null;
   }): Promise<Relacion> {
     return prisma.relacion.update({ where: { id }, data });
+  },
+
+  /** Relaciones ARCHIVADAS (histórico) de un contacto. */
+  async findArchivedByContacto(contactoId: string): Promise<RelacionCompleta[]> {
+    try {
+      const relaciones = await prisma.relacion.findMany({
+        where: {
+          activa: false,
+          OR: [{ origen_id: contactoId }, { destino_id: contactoId }],
+        },
+        include: {
+          tipo_relacion: true,
+          origen:        { select: contactoSelect },
+          destino:       { select: contactoSelect },
+        },
+        orderBy: { archivada_at: "desc" },
+      });
+      return relaciones as RelacionCompleta[];
+    } catch {
+      // Pre-migración: no hay columna activa → no hay archivadas
+      return [];
+    }
+  },
+
+  /** Soft-delete: marca la relación como archivada. */
+  async archive(id: string, motivo: string): Promise<Relacion> {
+    return prisma.relacion.update({
+      where: { id },
+      data: {
+        activa: false,
+        archivada_at: new Date(),
+        archivo_motivo: motivo,
+      },
+    });
+  },
+
+  /** Restaura una relación archivada a estado activo. */
+  async restore(id: string): Promise<Relacion> {
+    return prisma.relacion.update({
+      where: { id },
+      data: {
+        activa: true,
+        archivada_at: null,
+        archivo_motivo: null,
+      },
+    });
   },
 
   async delete(id: string): Promise<void> {

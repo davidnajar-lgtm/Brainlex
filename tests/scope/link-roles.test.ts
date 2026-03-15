@@ -2,13 +2,17 @@
 // tests/scope/link-roles.test.ts — TDD: Roles per-tenant en ContactoCompanyLink
 //
 // @role: @QA-Engineer / @Data-Architect
-// @spec: Fase 8.27 — Los roles comerciales (Cliente, Proveedor, Matriz) se
-//        determinan por ContactoCompanyLink.role, no por flags globales.
+// @spec: Fase 8.27 — Los roles comerciales se determinan por
+//        ContactoCompanyLink.role, no por flags globales.
+//
+// Roles actuales: Cliente, Pre-cliente, Contacto, Matriz.
+// Roles funcionales (Proveedor, Contrario, Notario) se gestionarán
+// vía sistema de etiquetas SALI, no como link.role hardcodeados.
 //
 // Casos:
 //   1. LINK_ROLES contiene los roles válidos del sistema
 //   2. validateLinkRole acepta roles válidos
-//   3. validateLinkRole rechaza roles inválidos
+//   3. validateLinkRole rechaza roles inválidos / futuros roles SALI
 //   4. Anti-autofacturación: Matriz no puede ser Cliente en el MISMO tenant
 //   5. Cross-tenant: Matriz en LW PUEDE ser Cliente en LX
 //   6. resolveDisplayRole prioriza link.role sobre flags globales
@@ -17,6 +21,7 @@
 import { describe, it, expect } from "vitest";
 import {
   LINK_ROLES,
+  IMPORT_ROLES,
   validateLinkRole,
   canAssignRole,
   resolveDisplayRole,
@@ -26,12 +31,29 @@ import {
 // ─── LINK_ROLES ──────────────────────────────────────────────────────────────
 
 describe("LINK_ROLES", () => {
-  it("contiene los roles esenciales del holding", () => {
+  it("contiene los roles base del holding", () => {
     expect(LINK_ROLES).toContain("Cliente");
-    expect(LINK_ROLES).toContain("Proveedor");
+    expect(LINK_ROLES).toContain("Pre-cliente");
+    expect(LINK_ROLES).toContain("Contacto");
     expect(LINK_ROLES).toContain("Matriz");
-    expect(LINK_ROLES).toContain("Contrario");
-    expect(LINK_ROLES).toContain("Notario");
+  });
+
+  it("NO contiene roles funcionales (se gestionan vía SALI)", () => {
+    expect(LINK_ROLES).not.toContain("Proveedor");
+    expect(LINK_ROLES).not.toContain("Contrario");
+    expect(LINK_ROLES).not.toContain("Notario");
+  });
+});
+
+// ─── IMPORT_ROLES ────────────────────────────────────────────────────────────
+
+describe("IMPORT_ROLES", () => {
+  it("ofrece solo roles seleccionables al importar", () => {
+    expect(IMPORT_ROLES).toEqual(["Cliente", "Pre-cliente"]);
+  });
+
+  it("excluye Matriz (se asigna automáticamente)", () => {
+    expect(IMPORT_ROLES).not.toContain("Matriz");
   });
 });
 
@@ -40,8 +62,14 @@ describe("LINK_ROLES", () => {
 describe("validateLinkRole", () => {
   it("acepta roles válidos", () => {
     expect(validateLinkRole("Cliente")).toBe(true);
-    expect(validateLinkRole("Proveedor")).toBe(true);
+    expect(validateLinkRole("Contacto")).toBe(true);
     expect(validateLinkRole("Matriz")).toBe(true);
+  });
+
+  it("rechaza roles funcionales (futuros — vía SALI)", () => {
+    expect(validateLinkRole("Proveedor")).toBe(false);
+    expect(validateLinkRole("Contrario")).toBe(false);
+    expect(validateLinkRole("Notario")).toBe(false);
   });
 
   it("rechaza roles inventados", () => {
@@ -96,11 +124,11 @@ describe("canAssignRole — anti-autofacturación", () => {
     expect(result.reason).toMatch(/una sola sociedad/i);
   });
 
-  it("Proveedor se permite sin restricciones", () => {
+  it("Contacto se permite junto a Matriz (no es autofacturación)", () => {
     const result = canAssignRole({
-      role: "Proveedor",
+      role: "Contacto" as LinkRole,
       targetCompanyId: "LX",
-      existingLinks: [{ company_id: "LX", role: "Matriz" }],
+      existingLinks: [{ company_id: "LW", role: "Matriz" }],
     });
     expect(result.allowed).toBe(true);
   });

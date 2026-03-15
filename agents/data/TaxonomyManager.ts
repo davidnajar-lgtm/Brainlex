@@ -34,7 +34,7 @@
 //   → No se puede crear un CanalComunicacion con tipo fuera de la whitelist.
 //
 // CERTIFICADO DE MÓDULO:
-//   Versión: 1.0.0 | Fecha: 2026-03-07 | Aprobado: Arquitecto Jefe
+//   Versión: 1.1.0 | Fecha: 2026-03-15 | Aprobado: Arquitecto Jefe
 // ============================================================================
 
 // ─── Campos Fijos (whitelist canónica del modelo Contacto) ───────────────────
@@ -90,74 +90,86 @@ export class SchemaVetoError extends Error {
   }
 }
 
-// ─── TaxonomyManager ─────────────────────────────────────────────────────────
+// ─── Funciones de validación (standalone — TS soporta `asserts` aquí) ────────
 
+/**
+ * Verifica que un campo de comunicación está en la whitelist de Campos Fijos.
+ * Lanza SchemaVetoError si el campo no está permitido.
+ *
+ * USO: llamar desde cualquier Server Action que intente escribir un campo
+ * de comunicación en la tabla `contactos`.
+ */
+export function assertFixedCommField(field: string): asserts field is ContactoFixedCommField {
+  if (!(CONTACTO_FIXED_COMM_FIELDS as readonly string[]).includes(field)) {
+    throw new SchemaVetoError(
+      `[AGENTE DE DATOS VETO] El campo "${field}" no pertenece a los Campos Fijos de Comunicación de Contacto. ` +
+        `Campos permitidos: ${CONTACTO_FIXED_COMM_FIELDS.join(", ")}. ` +
+        `Si necesitas un canal adicional, usa la tabla CanalComunicacion.`,
+      field,
+      "CanalComunicacion"
+    );
+  }
+}
+
+/**
+ * Verifica que un conjunto de claves no incluye campos de comunicación
+ * no autorizados. Usado para auditar payloads de actualización de Contacto.
+ *
+ * Devuelve la lista de campos violadores (vacía si todo es correcto).
+ */
+export function auditCommFields(fields: Record<string, unknown>): string[] {
+  const knownNonCommFields = new Set([
+    "id", "tipo", "nombre", "apellido1", "apellido2",
+    "razon_social", "tipo_sociedad", "fiscal_id", "fiscal_id_tipo",
+    "es_cliente", "es_contacto", "notas", "metadata", "status",
+    "quarantine_reason", "quarantine_expires_at", "forgotten_at",
+    "created_at", "updated_at",
+    ...CONTACTO_FIXED_COMM_FIELDS,
+  ]);
+
+  return Object.keys(fields).filter((key) => !knownNonCommFields.has(key));
+}
+
+/**
+ * Valida que el tipo de un CanalComunicacion está en la whitelist permitida.
+ * Lanza SchemaVetoError si el tipo no es reconocido.
+ */
+export function assertCanalTipo(tipo: string): asserts tipo is CanalTipo {
+  if (!(ALLOWED_CANAL_TIPOS as readonly string[]).includes(tipo)) {
+    throw new SchemaVetoError(
+      `[AGENTE DE DATOS VETO] El tipo de canal "${tipo}" no está en la whitelist de CanalComunicacion. ` +
+        `Tipos permitidos: ${ALLOWED_CANAL_TIPOS.join(", ")}.`,
+      "tipo",
+      ALLOWED_CANAL_TIPOS.join(" | ")
+    );
+  }
+}
+
+/**
+ * Lista los Campos Fijos autorizados para comunicación en Contacto.
+ * Útil para que el Frontend genere formularios dinámicamente.
+ */
+export function getFixedCommFields(): readonly ContactoFixedCommField[] {
+  return CONTACTO_FIXED_COMM_FIELDS;
+}
+
+/**
+ * Lista los tipos de canal autorizados para CanalComunicacion.
+ */
+export function getAllowedCanalTipos(): readonly CanalTipo[] {
+  return ALLOWED_CANAL_TIPOS;
+}
+
+// ─── TaxonomyManager (fachada agrupada — retrocompatibilidad) ────────────────
+
+/**
+ * Fachada que agrupa las funciones de validación del esquema.
+ * Cada método delega a la función standalone correspondiente.
+ */
 export const TaxonomyManager = {
-  /**
-   * Verifica que un campo de comunicación está en la whitelist de Campos Fijos.
-   * Lanza SchemaVetoError si el campo no está permitido.
-   *
-   * USO: llamar desde cualquier Server Action que intente escribir un campo
-   * de comunicación en la tabla `contactos`.
-   */
-  assertFixedCommField(field: string): asserts field is ContactoFixedCommField {
-    if (!(CONTACTO_FIXED_COMM_FIELDS as readonly string[]).includes(field)) {
-      throw new SchemaVetoError(
-        `[AGENTE DE DATOS VETO] El campo "${field}" no pertenece a los Campos Fijos de Comunicación de Contacto. ` +
-          `Campos permitidos: ${CONTACTO_FIXED_COMM_FIELDS.join(", ")}. ` +
-          `Si necesitas un canal adicional, usa la tabla CanalComunicacion.`,
-        field,
-        "CanalComunicacion"
-      );
-    }
-  },
-
-  /**
-   * Verifica que un conjunto de claves no incluye campos de comunicación
-   * no autorizados. Usado para auditar payloads de actualización de Contacto.
-   *
-   * Devuelve la lista de campos violadores (vacía si todo es correcto).
-   */
-  auditCommFields(fields: Record<string, unknown>): string[] {
-    const knownNonCommFields = new Set([
-      "id", "tipo", "nombre", "apellido1", "apellido2",
-      "razon_social", "tipo_sociedad", "fiscal_id", "fiscal_id_tipo",
-      "es_cliente", "es_contacto", "notas", "metadata", "status",
-      "quarantine_reason", "quarantine_expires_at", "forgotten_at",
-      "created_at", "updated_at",
-      ...CONTACTO_FIXED_COMM_FIELDS,
-    ]);
-
-    return Object.keys(fields).filter((key) => !knownNonCommFields.has(key));
-  },
-
-  /**
-   * Valida que el tipo de un CanalComunicacion está en la whitelist permitida.
-   * Lanza SchemaVetoError si el tipo no es reconocido.
-   */
-  assertCanalTipo(tipo: string): asserts tipo is CanalTipo {
-    if (!(ALLOWED_CANAL_TIPOS as readonly string[]).includes(tipo)) {
-      throw new SchemaVetoError(
-        `[AGENTE DE DATOS VETO] El tipo de canal "${tipo}" no está en la whitelist de CanalComunicacion. ` +
-          `Tipos permitidos: ${ALLOWED_CANAL_TIPOS.join(", ")}.`,
-        "tipo",
-        ALLOWED_CANAL_TIPOS.join(" | ")
-      );
-    }
-  },
-
-  /**
-   * Lista los Campos Fijos autorizados para comunicación en Contacto.
-   * Útil para que el Frontend genere formularios dinámicamente.
-   */
-  getFixedCommFields(): readonly ContactoFixedCommField[] {
-    return CONTACTO_FIXED_COMM_FIELDS;
-  },
-
-  /**
-   * Lista los tipos de canal autorizados para CanalComunicacion.
-   */
-  getAllowedCanalTipos(): readonly CanalTipo[] {
-    return ALLOWED_CANAL_TIPOS;
-  },
-} as const;
+  assertFixedCommField,
+  auditCommFields,
+  assertCanalTipo,
+  getFixedCommFields,
+  getAllowedCanalTipos,
+};

@@ -32,7 +32,6 @@ export interface ContactosLabels {
     preferido:       string;
     personaFisica:   string;
     personaJuridica: string;
-    principal:       string;
   };
   emptyStates: {
     noDirecciones:      string;
@@ -86,6 +85,17 @@ export interface ContactosLabels {
     confirmNo:        string;
     restoring:        string;
   };
+  /** @Knowledge-Librarian — Ayuda contextual para usuario final */
+  help: {
+    telefonoFormato:     string;
+    canalPreferido:      string;
+    buscarRazonSocial:   string;
+    emailPrincipal:      string;
+    sinNifExplicacion:   string;
+    direccionTipo:       string;
+    linkedinFormato:     string;
+    websiteFormato:      string;
+  };
   /** Bóveda — Descarga ZIP */
   boveda: {
     descargarTodo:    string;
@@ -94,6 +104,20 @@ export interface ContactosLabels {
     errorDescarga:    string;
     bovedaVacia:      string;
     sinAcceso:        string;
+    docPermanente:    string;
+    docPermanenteDesc: string;
+    mirrorSynced:     string;
+  };
+  /** Relaciones */
+  relaciones: {
+    titulo:           string;
+    sinRelaciones:    string;
+    sinRelacionesDesc: string;
+    nuevaRelacion:    string;
+    tipoRelacion:     string;
+    buscarContacto:   string;
+    cargo:            string;
+    notas:            string;
   };
 }
 
@@ -129,7 +153,6 @@ const ES: ContactosLabels = {
     preferido:       "Preferido",
     personaFisica:   "Persona Física",
     personaJuridica: "Persona Jurídica",
-    principal:       "Principal",
   },
   emptyStates: {
     noDirecciones:      "No hay direcciones adicionales registradas.",
@@ -185,6 +208,16 @@ const ES: ContactosLabels = {
     confirmNo:    "Cancelar",
     restoring:    "Restaurando…",
   },
+  help: {
+    telefonoFormato:     "Incluye el prefijo del país. Ej: +34 600 123 456. Selecciona la bandera para cambiar de país.",
+    canalPreferido:      "Indica si este contacto prefiere que le contactes por Email o por Móvil. No afecta al envío, solo es informativo.",
+    buscarRazonSocial:   "Pulsa el botón de Google para buscar la empresa y rellenar automáticamente el nombre y la dirección.",
+    emailPrincipal:      "El email principal se usa para comunicaciones oficiales. Puedes añadir más emails en Canales Adicionales.",
+    sinNifExplicacion:   "Este contacto no tiene datos fiscales. No podrá recibir facturas oficiales hasta que se complete el NIF/CIF.",
+    direccionTipo:       "Fiscal = dirección de facturación. Domicilio Social = sede legal. Workplace = centro de trabajo u obra.",
+    linkedinFormato:     "Pega la URL completa del perfil. Ej: https://linkedin.com/in/nombre-usuario",
+    websiteFormato:      "Se añade https:// automáticamente si no lo escribes. Ej: www.empresa.com",
+  },
   boveda: {
     descargarTodo:    "Descargar todo (.zip)",
     descargarCarpeta: "Descargar carpeta (.zip)",
@@ -192,6 +225,19 @@ const ES: ContactosLabels = {
     errorDescarga:    "Error al generar el archivo ZIP.",
     bovedaVacia:      "La bóveda está vacía. No hay carpetas para descargar.",
     sinAcceso:        "No hay carpetas accesibles para descargar.",
+    docPermanente:    "Documentación Permanente",
+    docPermanenteDesc: "NIF, Escrituras, Poderes — compartida con todo el Holding.",
+    mirrorSynced:     "Sincronizado con espejo",
+  },
+  relaciones: {
+    titulo:            "Relaciones",
+    sinRelaciones:     "Sin relaciones",
+    sinRelacionesDesc: "Añade vínculos con otros contactos: socios, administradores, representantes legales.",
+    nuevaRelacion:     "Nueva relación",
+    tipoRelacion:      "Tipo de relación",
+    buscarContacto:    "Buscar contacto...",
+    cargo:             "Cargo / Rol",
+    notas:             "Notas",
   },
 };
 
@@ -227,7 +273,6 @@ const EN: ContactosLabels = {
     preferido:       "Preferred",
     personaFisica:   "Individual",
     personaJuridica: "Company",
-    principal:       "Primary",
   },
   emptyStates: {
     noDirecciones:      "No additional addresses registered.",
@@ -283,6 +328,16 @@ const EN: ContactosLabels = {
     confirmNo:    "Cancel",
     restoring:    "Restoring…",
   },
+  help: {
+    telefonoFormato:     "Include the country code. E.g.: +34 600 123 456. Select the flag to change country.",
+    canalPreferido:      "Indicates whether this contact prefers to be reached by Email or Mobile. Informational only — does not affect sending.",
+    buscarRazonSocial:   "Click the Google button to search for the company and auto-fill the name and address.",
+    emailPrincipal:      "The primary email is used for official communications. You can add more emails in Additional Channels.",
+    sinNifExplicacion:   "This contact has no tax data. They cannot receive official invoices until a Tax ID is provided.",
+    direccionTipo:       "Tax = billing address. Registered Office = legal headquarters. Workplace = work site or office.",
+    linkedinFormato:     "Paste the full profile URL. E.g.: https://linkedin.com/in/username",
+    websiteFormato:      "https:// is added automatically if omitted. E.g.: www.company.com",
+  },
   boveda: {
     descargarTodo:    "Download all (.zip)",
     descargarCarpeta: "Download folder (.zip)",
@@ -290,6 +345,19 @@ const EN: ContactosLabels = {
     errorDescarga:    "Error generating the ZIP file.",
     bovedaVacia:      "The vault is empty. No folders to download.",
     sinAcceso:        "No accessible folders to download.",
+    docPermanente:    "Permanent Documentation",
+    docPermanenteDesc: "Tax ID, Deeds, Powers of Attorney — shared across the entire Holding.",
+    mirrorSynced:     "Synced with mirror",
+  },
+  relaciones: {
+    titulo:            "Relationships",
+    sinRelaciones:     "No relationships",
+    sinRelacionesDesc: "Add links to other contacts: partners, directors, legal representatives.",
+    nuevaRelacion:     "New relationship",
+    tipoRelacion:      "Relationship type",
+    buscarContacto:    "Search contact...",
+    cargo:             "Position / Role",
+    notas:             "Notes",
   },
 };
 
@@ -325,7 +393,6 @@ const FR: ContactosLabels = {
     preferido:       "Préféré",
     personaFisica:   "Personne Physique",
     personaJuridica: "Personne Morale",
-    principal:       "Principal",
   },
   emptyStates: {
     noDirecciones:      "Aucune adresse supplémentaire enregistrée.",
@@ -381,6 +448,16 @@ const FR: ContactosLabels = {
     confirmNo:    "Annuler",
     restoring:    "Restauration en cours…",
   },
+  help: {
+    telefonoFormato:     "Inclure l'indicatif du pays. Ex : +34 600 123 456. Sélectionnez le drapeau pour changer de pays.",
+    canalPreferido:      "Indique si ce contact préfère être contacté par Email ou par Mobile. Informatif uniquement.",
+    buscarRazonSocial:   "Cliquez sur le bouton Google pour rechercher l'entreprise et remplir automatiquement le nom et l'adresse.",
+    emailPrincipal:      "L'email principal est utilisé pour les communications officielles. Vous pouvez ajouter d'autres emails dans les Canaux Supplémentaires.",
+    sinNifExplicacion:   "Ce contact n'a pas de données fiscales. Il ne peut pas recevoir de factures officielles tant qu'un identifiant fiscal n'est pas fourni.",
+    direccionTipo:       "Fiscale = adresse de facturation. Siège Social = siège juridique. Site = lieu de travail ou chantier.",
+    linkedinFormato:     "Collez l'URL complète du profil. Ex : https://linkedin.com/in/nom-utilisateur",
+    websiteFormato:      "https:// est ajouté automatiquement si omis. Ex : www.entreprise.com",
+  },
   boveda: {
     descargarTodo:    "Tout télécharger (.zip)",
     descargarCarpeta: "Télécharger le dossier (.zip)",
@@ -388,6 +465,19 @@ const FR: ContactosLabels = {
     errorDescarga:    "Erreur lors de la génération du fichier ZIP.",
     bovedaVacia:      "Le coffre est vide. Aucun dossier à télécharger.",
     sinAcceso:        "Aucun dossier accessible à télécharger.",
+    docPermanente:    "Documentation Permanente",
+    docPermanenteDesc: "NIF, Actes, Procurations — partagée avec tout le Holding.",
+    mirrorSynced:     "Synchronisé avec le miroir",
+  },
+  relaciones: {
+    titulo:            "Relations",
+    sinRelaciones:     "Aucune relation",
+    sinRelacionesDesc: "Ajoutez des liens avec d'autres contacts : associés, administrateurs, représentants légaux.",
+    nuevaRelacion:     "Nouvelle relation",
+    tipoRelacion:      "Type de relation",
+    buscarContacto:    "Rechercher un contact...",
+    cargo:             "Poste / Rôle",
+    notas:             "Notes",
   },
 };
 

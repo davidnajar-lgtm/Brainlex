@@ -33,6 +33,8 @@ export interface PlanInput {
   existingCarpetaEtiquetaIds:  Set<string>;
   /** Mapa etiqueta_id → carpeta_id para resolver parentCarpetaId. */
   existingCarpetasByEtiqueta:  Map<string, string>;
+  /** Naturaleza del servicio: "PUNTUAL" | "ANUAL". Default: "PUNTUAL". */
+  periodicidad?:               string;
 }
 
 export interface BlueprintCarpetaPlan {
@@ -43,7 +45,9 @@ export interface BlueprintCarpetaPlan {
     es_blueprint:    boolean;
     parentCarpetaId: string | null;
   } | null;
-  /** Nombres de subcarpetas blueprint (se crean como children de rootCarpeta). */
+  /** Nombre de carpeta de año (ej. "2026") — solo para periodicidad ANUAL. */
+  yearFolder: string | null;
+  /** Nombres de subcarpetas blueprint (se crean como children de rootCarpeta o yearFolder). */
   subcarpetas: string[];
 }
 
@@ -58,16 +62,19 @@ export function planBlueprintCarpetas(input: PlanInput): BlueprintCarpetaPlan {
     parentEtiquetaId,
     existingCarpetaEtiquetaIds,
     existingCarpetasByEtiqueta,
+    periodicidad,
   } = input;
+
+  const SKIP: BlueprintCarpetaPlan = { skip: true, rootCarpeta: null, yearFolder: null, subcarpetas: [] };
 
   // Solo Constructor (Departamento/Servicio)
   if (categoriaNombre !== "Departamento" && categoriaNombre !== "Servicio") {
-    return { skip: true, rootCarpeta: null, subcarpetas: [] };
+    return SKIP;
   }
 
   // Idempotencia: no duplicar si ya existe carpeta para esta etiqueta
   if (existingCarpetaEtiquetaIds.has(etiquetaId)) {
-    return { skip: true, rootCarpeta: null, subcarpetas: [] };
+    return SKIP;
   }
 
   // Resolver parent_id de la carpeta (solo si el Servicio tiene Departamento padre con carpeta)
@@ -82,14 +89,20 @@ export function planBlueprintCarpetas(input: PlanInput): BlueprintCarpetaPlan {
     parentCarpetaId,
   };
 
-  // Departamento: solo la carpeta raíz, sin subcarpetas
+  // Departamento: solo la carpeta raíz, sin subcarpetas, sin yearFolder
   if (categoriaNombre === "Departamento") {
-    return { skip: false, rootCarpeta, subcarpetas: [] };
+    return { skip: false, rootCarpeta, yearFolder: null, subcarpetas: [] };
   }
 
   // Servicio: carpeta + subcarpetas blueprint
   const subcarpetas = resolveSubcarpetas(blueprint);
-  return { skip: false, rootCarpeta, subcarpetas };
+
+  // ANUAL: insertar carpeta de año actual entre servicio y subcarpetas
+  const yearFolder = periodicidad === "ANUAL"
+    ? new Date().getFullYear().toString()
+    : null;
+
+  return { skip: false, rootCarpeta, yearFolder, subcarpetas };
 }
 
 // ─── Tenant resolution ───────────────────────────────────────────────────────

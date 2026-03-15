@@ -11,9 +11,10 @@
 
 import { CheckCircle2, ShieldAlert, Eye, Trash2 } from "lucide-react";
 import { contactoRepository } from "@/lib/modules/entidades/repositories/contacto.repository";
+import { prisma } from "@/lib/prisma";
 import { RestoreButton } from "./RestoreButton";
 import { ArchiveButton } from "@/app/contactos/_modules/shared/ArchiveButton";
-import type { AuditAction, ContactoStatus } from "@prisma/client";
+import type { AuditAction, AuditLog, ContactoStatus } from "@prisma/client";
 import { getContactosLabels, type AppLocale } from "@/lib/i18n/contactos";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -39,6 +40,18 @@ const AUDIT_ACTION_CLASSES: Record<AuditAction, string> = {
   FORGET:     "bg-red-500/10     text-red-400     ring-red-500/20",
 };
 
+const TABLE_NAME_LABELS: Record<string, string> = {
+  contactos:             "Contacto",
+  direcciones:           "Dirección",
+  canales_comunicacion:  "Canal de comunicación",
+  etiquetas:             "Etiqueta",
+  relaciones:            "Relación",
+  contacto_company_links: "Vínculo",
+  evidencias_relacion:   "Evidencia",
+  Carpeta:               "Bóveda",
+  Archivo:               "Archivo",
+};
+
 function formatDateTime(date: Date): string {
   return new Intl.DateTimeFormat("es-ES", {
     day:    "2-digit",
@@ -47,6 +60,79 @@ function formatDateTime(date: Date): string {
     hour:   "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+// Regex para detectar CUIDs en las notes del AuditLog
+const CUID_RE = /\b(c[a-z0-9]{20,30})\b/g;
+
+/**
+ * Resuelve CUIDs encontrados en las notes del AuditLog a nombres legibles.
+ * Busca en contactos, relaciones (tipo+destino), y direcciones.
+ * Los entries son inmutables — la humanización es solo para presentación.
+ */
+async function humanizeAuditNotes(entries: AuditLog[]): Promise<Map<string, string>> {
+  // 1. Extraer todos los CUIDs únicos de todas las notes
+  const allCuids = new Set<string>();
+  for (const entry of entries) {
+    if (!entry.notes) continue;
+    for (const match of entry.notes.matchAll(CUID_RE)) {
+      allCuids.add(match[1]);
+    }
+  }
+  if (allCuids.size === 0) return new Map();
+
+  const ids = [...allCuids];
+  const nameMap = new Map<string, string>();
+
+  // 2. Resolver contactos
+  const contactos = await prisma.contacto.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, nombre: true, apellido1: true, razon_social: true, tipo: true },
+  });
+  for (const c of contactos) {
+    const name = c.tipo === "PERSONA_JURIDICA"
+      ? c.razon_social ?? "—"
+      : [c.nombre, c.apellido1].filter(Boolean).join(" ") || "—";
+    nameMap.set(c.id, name);
+  }
+
+  // 3. Resolver relaciones (tipo + otro contacto)
+  const remaining = ids.filter((id) => !nameMap.has(id));
+  if (remaining.length > 0) {
+    const relaciones = await prisma.relacion.findMany({
+      where: { id: { in: remaining } },
+      select: {
+        id: true,
+        tipo_relacion: { select: { nombre: true } },
+        origen: { select: { nombre: true, apellido1: true, razon_social: true, tipo: true } },
+        destino: { select: { nombre: true, apellido1: true, razon_social: true, tipo: true } },
+      },
+    });
+    for (const r of relaciones) {
+      const dest = r.destino.tipo === "PERSONA_JURIDICA"
+        ? r.destino.razon_social ?? "—"
+        : [r.destino.nombre, r.destino.apellido1].filter(Boolean).join(" ") || "—";
+      nameMap.set(r.id, `"${r.tipo_relacion.nombre}" con ${dest}`);
+    }
+  }
+
+  // 4. Resolver direcciones
+  const still = ids.filter((id) => !nameMap.has(id));
+  if (still.length > 0) {
+    const dirs = await prisma.direccion.findMany({
+      where: { id: { in: still } },
+      select: { id: true, calle: true, ciudad: true, tipo: true },
+    });
+    for (const d of dirs) {
+      nameMap.set(d.id, [d.calle, d.ciudad].filter(Boolean).join(", ") || d.tipo);
+    }
+  }
+
+  return nameMap;
+}
+
+function replaceIds(notes: string, nameMap: Map<string, string>): string {
+  return notes.replace(CUID_RE, (match) => nameMap.get(match) ?? match);
 }
 
 // ─── Componente ───────────────────────────────────────────────────────────────
@@ -66,6 +152,7 @@ export async function TabAdmin({
 }) {
   const t = getContactosLabels(locale);
   const auditLogs = await contactoRepository.findAuditLogs(contactoId);
+  const nameMap = await humanizeAuditNotes(auditLogs);
   const StatusIcon = STATUS_ICONS[status];
 
   return (
@@ -155,6 +242,7 @@ export async function TabAdmin({
             {auditLogs.map((entry) => {
               const label   = t.admin.auditAction[entry.action] ?? entry.action;
               const classes = AUDIT_ACTION_CLASSES[entry.action] ?? "bg-zinc-700/40 text-zinc-500 ring-zinc-600/20";
+              const module  = TABLE_NAME_LABELS[entry.table_name] ?? entry.table_name;
               return (
                 <div
                   key={entry.id}
@@ -166,6 +254,9 @@ export async function TabAdmin({
                         className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${classes}`}
                       >
                         {label}
+                      </span>
+                      <span className="text-[10px] text-zinc-600 font-medium">
+                        {module}
                       </span>
                       {entry.actor_email && (
                         <span className="text-[11px] text-zinc-500">
@@ -179,7 +270,7 @@ export async function TabAdmin({
                   </div>
                   {entry.notes && (
                     <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
-                      {entry.notes}
+                      {replaceIds(entry.notes, nameMap)}
                     </p>
                   )}
                   {entry.ip_address && (

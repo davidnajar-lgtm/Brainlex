@@ -19,6 +19,9 @@ import { carpetaRepository, archivoRepository } from "../repositories/boveda.rep
 import { buildCarpetaTree, type CarpetaFlat, type CarpetaNode } from "@/lib/services/bovedaTree.service";
 import { planBlueprintCarpetas, scopeToCompanyId } from "@/lib/services/blueprintMaterialize.service";
 import { etiquetaRepository } from "../repositories/etiqueta.repository";
+import { syncFolderToGoogleDrive, syncSingleFolderToGoogleDrive } from "@/lib/services/driveIntegration.service";
+import { auditLogRepository } from "../repositories/auditLog.repository";
+import { ensureDocPermanente } from "@/lib/services/docPermanente.service";
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -34,6 +37,9 @@ type ActionResult<T = void> =
  * null → SuperAdmin, ve todas.
  */
 export async function getCarpetasTree(contactoId: string, companyId?: string | null): Promise<CarpetaNode[]> {
+  // Asegurar que existe la carpeta DocPermanente (idempotente, best-effort)
+  await ensureDocPermanente(contactoId).catch(() => {});
+
   const carpetas = await carpetaRepository.findByContacto(contactoId, companyId);
 
   const flat: CarpetaFlat[] = carpetas.map((c) => ({
@@ -72,6 +78,14 @@ export async function createCarpetaManual(
   if (parentId) {
     const parent = await carpetaRepository.findById(parentId);
     if (!parent) return { ok: false, error: "La carpeta padre no existe." };
+
+    // REGLA CISO — Protección multitenant: padre debe pertenecer al mismo tenant
+    if (companyId && parent.company_id && parent.company_id !== companyId) {
+      return {
+        ok: false,
+        error: `La carpeta padre pertenece a ${parent.company_id}. No se puede crear dentro desde ${companyId}.`,
+      };
+    }
   }
 
   const carpeta = await carpetaRepository.createDirect({
@@ -82,16 +96,32 @@ export async function createCarpetaManual(
     parent_id: parentId ?? null,
   });
 
+  // REGLA CISO — AuditLog
+  await auditLogRepository.append({
+    table_name: "Carpeta",
+    record_id: carpeta.id,
+    action: "CREATE",
+    notes: `Carpeta manual "${nombre.trim()}" creada para contacto ${contactoId}`,
+  });
+
+  // Drive sync (best-effort — no bloquea si falla)
+  syncSingleFolderToGoogleDrive(nombre.trim()).catch(() => {});
+
   revalidatePath(`/contactos/${contactoId}`);
   return { ok: true, data: { id: carpeta.id } };
 }
 
 // ─── Mover carpeta ──────────────────────────────────────────────────────────
 
+/**
+ * @Scope-Guard — Mover carpeta con protección multitenant.
+ * Un tenant NO puede mover carpetas que pertenecen a otro tenant.
+ */
 export async function moveCarpeta(
   carpetaId: string,
   newParentId: string | null,
   orden: number,
+  companyId?: string | null,
 ): Promise<ActionResult> {
   const carpeta = await carpetaRepository.findById(carpetaId);
   if (!carpeta) return { ok: false, error: "Carpeta no encontrada." };
@@ -101,11 +131,27 @@ export async function moveCarpeta(
     return { ok: false, error: "Las carpetas de blueprint son inmutables y no se pueden mover." };
   }
 
+  // REGLA CISO — Protección multitenant
+  if (companyId && carpeta.company_id && carpeta.company_id !== companyId) {
+    return {
+      ok: false,
+      error: `Esta carpeta pertenece a ${carpeta.company_id}. No se puede mover desde ${companyId}.`,
+    };
+  }
+
   // Verificar que el destino existe (se permite mover dentro de blueprint)
   if (newParentId) {
     const target = await carpetaRepository.findById(newParentId);
     if (!target) return { ok: false, error: "La carpeta destino no existe." };
   }
+
+  // REGLA CISO — AuditLog ANTES de mutar
+  await auditLogRepository.append({
+    table_name: "Carpeta",
+    record_id: carpetaId,
+    action: "UPDATE",
+    notes: `Carpeta "${carpeta.nombre}" movida a parent=${newParentId ?? "raíz"}, orden=${orden}`,
+  });
 
   await carpetaRepository.move(carpetaId, newParentId, orden);
   revalidatePath(`/contactos/${carpeta.contacto_id}`);
@@ -114,13 +160,43 @@ export async function moveCarpeta(
 
 // ─── Borrar carpeta ─────────────────────────────────────────────────────────
 
-export async function deleteCarpeta(carpetaId: string): Promise<ActionResult> {
+/**
+ * @Scope-Guard — Borrado de carpeta con protección multitenant.
+ *
+ * REGLA CISO — INTEGRIDAD MULTITENANT:
+ *   Si la carpeta tiene company_id asignado y se proporciona companyId,
+ *   verifica que la carpeta pertenece al tenant que solicita el borrado.
+ *   Un tenant NO puede borrar carpetas de otro tenant.
+ *
+ *   Carpetas con company_id=null (preexistentes) son accesibles por todos
+ *   los tenants. Su borrado requiere companyId=null (SuperAdmin).
+ */
+export async function deleteCarpeta(
+  carpetaId: string,
+  companyId?: string | null,
+): Promise<ActionResult> {
   const carpeta = await carpetaRepository.findById(carpetaId);
   if (!carpeta) return { ok: false, error: "Carpeta no encontrada." };
 
   if (carpeta.es_blueprint) {
     return { ok: false, error: "Las carpetas de blueprint son inmutables y no se pueden borrar." };
   }
+
+  // REGLA CISO — Protección multitenant: solo el tenant propietario puede borrar
+  if (companyId && carpeta.company_id && carpeta.company_id !== companyId) {
+    return {
+      ok: false,
+      error: `Esta carpeta pertenece a ${carpeta.company_id}. No se puede borrar desde ${companyId}.`,
+    };
+  }
+
+  // REGLA CISO — AuditLog ANTES de mutar
+  await auditLogRepository.append({
+    table_name: "Carpeta",
+    record_id: carpetaId,
+    action: "FORGET",
+    notes: `Carpeta "${carpeta.nombre}" eliminada del contacto ${carpeta.contacto_id}`,
+  });
 
   await carpetaRepository.delete(carpetaId);
   revalidatePath(`/contactos/${carpeta.contacto_id}`);
@@ -170,6 +246,7 @@ export async function materializeBlueprintCarpetas(
       parentEtiquetaId: etiqueta.parent_id ?? null,
       existingCarpetaEtiquetaIds: existingIds,
       existingCarpetasByEtiqueta: existingMap,
+      periodicidad: etiqueta.periodicidad ?? "PUNTUAL",
     });
 
     if (plan.skip || !plan.rootCarpeta) {
@@ -191,6 +268,23 @@ export async function materializeBlueprintCarpetas(
     });
     createdIds.push(rootCarpeta.id);
 
+    // 3b. Si ANUAL, crear carpeta de año entre servicio y subcarpetas
+    let subcarpetaParentId = rootCarpeta.id;
+    if (plan.yearFolder) {
+      const yearCarpeta = await carpetaRepository.createDirect({
+        nombre: plan.yearFolder,
+        tipo: "INTELIGENTE",
+        contacto_id: contactoId,
+        company_id: companyId,
+        parent_id: rootCarpeta.id,
+        etiqueta_id: null,
+        es_blueprint: true,
+        orden: 0,
+      });
+      createdIds.push(yearCarpeta.id);
+      subcarpetaParentId = yearCarpeta.id;
+    }
+
     // 4. Crear subcarpetas blueprint (solo para Servicio)
     for (let i = 0; i < plan.subcarpetas.length; i++) {
       const sub = await carpetaRepository.createDirect({
@@ -198,12 +292,30 @@ export async function materializeBlueprintCarpetas(
         tipo: "INTELIGENTE",
         contacto_id: contactoId,
         company_id: companyId,
-        parent_id: rootCarpeta.id,
+        parent_id: subcarpetaParentId,
         etiqueta_id: null,
         es_blueprint: true,
         orden: i + 1,
       });
       createdIds.push(sub.id);
+    }
+
+    // REGLA CISO — AuditLog para materialización
+    await auditLogRepository.append({
+      table_name: "Carpeta",
+      record_id: rootCarpeta.id,
+      action: "CREATE",
+      notes: `Blueprint materializado: "${etiqueta.nombre}" (${createdIds.length} carpetas) para contacto ${contactoId}`,
+    });
+
+    // Drive sync (best-effort — BD ya tiene las carpetas, Drive es idempotente)
+    const segments = [etiqueta.nombre];
+    if (plan.yearFolder) segments.push(plan.yearFolder);
+    for (const sub of plan.subcarpetas) {
+      syncFolderToGoogleDrive(etiqueta.nombre, [...segments.slice(1), sub]).catch(() => {});
+    }
+    if (plan.subcarpetas.length === 0) {
+      syncFolderToGoogleDrive(etiqueta.nombre, segments.slice(1)).catch(() => {});
     }
 
     revalidatePath(`/contactos/${contactoId}`);
@@ -216,14 +328,51 @@ export async function materializeBlueprintCarpetas(
 
 // ─── Mover archivo ──────────────────────────────────────────────────────────
 
+/**
+ * @Scope-Guard — Mover archivo con protección multitenant.
+ *
+ * REGLA CISO — INTEGRIDAD MULTITENANT:
+ *   1. El archivo (vía su carpeta origen) debe pertenecer al tenant solicitante.
+ *   2. La carpeta destino debe pertenecer al mismo tenant.
+ *   Un tenant NO puede mover archivos a carpetas de otro tenant.
+ */
 export async function moveArchivo(
   archivoId: string,
   targetCarpetaId: string,
   contactoId: string,
+  companyId?: string | null,
 ): Promise<ActionResult> {
-  // Verificar que el destino no es blueprint
+  // Verificar que el archivo existe y obtener su carpeta origen
+  const archivo = await archivoRepository.findById(archivoId);
+  if (!archivo) return { ok: false, error: "El archivo no existe." };
+
+  // Verificar que el destino existe
   const target = await carpetaRepository.findById(targetCarpetaId);
   if (!target) return { ok: false, error: "La carpeta destino no existe." };
+
+  // REGLA CISO — Protección multitenant: validar carpeta origen
+  if (companyId && archivo.carpeta.company_id && archivo.carpeta.company_id !== companyId) {
+    return {
+      ok: false,
+      error: `El archivo pertenece a ${archivo.carpeta.company_id}. No se puede mover desde ${companyId}.`,
+    };
+  }
+
+  // REGLA CISO — Protección multitenant: validar carpeta destino
+  if (companyId && target.company_id && target.company_id !== companyId) {
+    return {
+      ok: false,
+      error: `La carpeta destino pertenece a ${target.company_id}. No se puede mover desde ${companyId}.`,
+    };
+  }
+
+  // REGLA CISO — AuditLog ANTES de mutar
+  await auditLogRepository.append({
+    table_name: "Archivo",
+    record_id: archivoId,
+    action: "UPDATE",
+    notes: `Archivo "${archivo.nombre}" movido de carpeta ${archivo.carpeta.id} a ${targetCarpetaId}`,
+  });
 
   await archivoRepository.move(archivoId, targetCarpetaId);
   revalidatePath(`/contactos/${contactoId}`);

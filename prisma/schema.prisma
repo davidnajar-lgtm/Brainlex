@@ -323,7 +323,8 @@ model CanalComunicacion {
 // ============================================================================
 // TipoRelacion — Catálogo de tipos de relación entre Contactos
 //
-// GLOBAL — sin company_id. Catálogo de holding compartido entre LX y LW.
+// Catálogo de holding con scope por tenant (patrón Etiqueta).
+// GLOBAL = visible en ambas matrices; LEXCONOMY/LAWTECH = solo en una.
 // Ejemplos: Socio, Administrador, Cónyuge, Contraparte, Contratista, Subcontratista.
 // ============================================================================
 model TipoRelacion {
@@ -333,6 +334,7 @@ model TipoRelacion {
   categoria   String  /// Agrupación visual: "Societaria" | "Procesal" | "Laboral" | "Familiar" | "Otro"
   descripcion String?
   es_sistema  Boolean @default(false) /// true = predefinida (no editable ni borrable)
+  scope       EtiquetaScope @default(GLOBAL) /// Visibilidad: GLOBAL | LEXCONOMY | LAWTECH
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -340,6 +342,7 @@ model TipoRelacion {
   relaciones Relacion[]
 
   @@index([categoria])
+  @@index([scope])
   @@map("tipos_relacion")
 }
 
@@ -363,6 +366,13 @@ model Relacion {
   departamento_interno String?
   /// ID de la Dirección (sede) vinculada a esta relación (FK lógica a Direccion.id)
   sede_vinculada_id    String?
+  /// Porcentaje de participación societaria (0.00–100.00). Solo aplica a tipos societarios.
+  porcentaje           Float?
+
+  /// Soft-delete: relación archivada (histórica) vs activa
+  activa          Boolean   @default(true)
+  archivada_at    DateTime?
+  archivo_motivo  String?
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -370,11 +380,41 @@ model Relacion {
   origen        Contacto     @relation("RelacionOrigen",  fields: [origen_id],        references: [id])
   destino       Contacto     @relation("RelacionDestino", fields: [destino_id],        references: [id])
   tipo_relacion TipoRelacion @relation(fields: [tipo_relacion_id], references: [id])
+  evidencias    EvidenciaRelacion[]
 
   @@unique([origen_id, destino_id, tipo_relacion_id])
   @@index([origen_id])
   @@index([destino_id])
   @@map("relaciones")
+}
+
+// ============================================================================
+// EvidenciaRelacion — Documentos probatorios vinculados a una Relación
+//
+// @role: @Data-Architect / @Security-CISO
+// @spec: FASE 13.06 — Evidencias contextuales en relaciones
+//
+// Cada registro representa un archivo (contrato, poder, acta, etc.)
+// vinculado a una relación específica. El archivo se almacena en Google Drive
+// (drive_file_id) y la ruta se genera automáticamente:
+//   [Bóveda del Origen]/_RELACIONES/[TipoRelación] - [Destino]/
+//
+// Fase actual: stub de Drive (drive_file_id simulado). Se activará en Fase 4+.
+// ============================================================================
+model EvidenciaRelacion {
+  id           String  @id @default(cuid())
+  relacion_id  String
+  nombre       String                          /// Nombre original del archivo
+  mime_type    String?                         /// MIME type (application/pdf, etc.)
+  size_bytes   Int?                            /// Tamaño en bytes
+  drive_file_id String?                        /// Google Drive file ID (stub hasta Fase 4)
+
+  created_at DateTime @default(now())
+
+  relacion Relacion @relation(fields: [relacion_id], references: [id], onDelete: Cascade)
+
+  @@index([relacion_id])
+  @@map("evidencias_relacion")
 }
 
 // ============================================================================
@@ -416,6 +456,7 @@ model Etiqueta {
   parent_id          String?                           /// Jerarquía: Servicio → Departamento padre (obligatorio para Servicio)
   es_expediente      Boolean       @default(false)     /// true = al asignar, abre modal de Nuevo Expediente
   solo_super_admin   Boolean       @default(false)     /// @Security-CISO: true = invisible para Staff en Drive, clonación y visor
+  periodicidad       String        @default("PUNTUAL") /// Naturaleza del servicio: "PUNTUAL" (expediente único) | "ANUAL" (recurrente por años)
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

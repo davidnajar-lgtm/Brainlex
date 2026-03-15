@@ -19,7 +19,7 @@
 // ============================================================================
 
 import { useState, useEffect, useTransition, useCallback, createContext, useContext, type ReactNode, type DragEvent } from "react";
-import { Folder, FolderLock, Tag, X, Pencil, Zap, ChevronLeft, ChevronRight, CalendarDays, FilePlus2, FileText } from "lucide-react";
+import { Folder, FolderLock, Tag, X, Pencil, Zap, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { useTenant } from "@/lib/context/TenantContext";
 import { useToast } from "@/components/ui/Toast";
@@ -30,7 +30,7 @@ import {
   asignarEtiqueta,
   desasignarEtiqueta,
 } from "@/lib/modules/entidades/actions/etiquetas.actions";
-import { createDriveFolder, buildDriveFolderTree, isYearTag, type DriveFolderNode } from "@/lib/services/driveMock.service";
+import { createDriveFolder } from "@/lib/services/driveMock.service";
 import { materializeBlueprintCarpetas } from "@/lib/modules/entidades/actions/boveda.actions";
 import { TabBoveda } from "./TabBoveda";
 
@@ -438,20 +438,6 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
   const assignedAtributos     = assigned.filter((a) => getCategoriaTipo(a.etiqueta.categoria.nombre) === "ATRIBUTO");
 
   const accentColor = tenant.color;
-
-  // Build folder tree from assigned Constructor tags
-  const constructorTags = assigned
-    .filter((a) => getCategoriaTipo(a.etiqueta.categoria.nombre) === "CONSTRUCTOR")
-    .map((a) => ({
-      categoriaNombre: a.etiqueta.categoria.nombre,
-      etiquetaNombre:  a.etiqueta.nombre,
-      blueprint:       a.etiqueta.blueprint,
-    }));
-  // Extract year tags from assigned Identidad (ATRIBUTO) tags
-  const yearTags = assigned
-    .filter((a) => a.etiqueta.categoria.nombre === "Identidad" && isYearTag(a.etiqueta.nombre))
-    .map((a) => a.etiqueta.nombre);
-  const folderTree = buildDriveFolderTree(contactoName, constructorTags, yearTags);
 
   // ─── Filtrado inteligente: Departamentos asignados → resaltar Servicios hijos ──
   const assignedDeptIds = new Set(
@@ -895,122 +881,3 @@ export function CommandCenter({ contactoId, contactoName, children }: CommandCen
   );
 }
 
-// ─── FolderTreeView — renderiza el arbol recursivo ─────────────────────────
-
-function FolderTreeView({
-  node,
-  depth,
-  accentColor,
-  isLast = false,
-}: {
-  node: DriveFolderNode;
-  depth: number;
-  accentColor: string;
-  isLast?: boolean;
-}) {
-  const [simDocs, setSimDocs] = useState<string[]>([]);
-  const isPlaceholder = node.type === "placeholder";
-  const isYear = node.type === "year";
-  // Ghost mode: carpetas de nivel 3+ sin contenido real y sin docs simulados
-  const hasContent = simDocs.length > 0 || node.children.length > 0;
-  const isGhost = isPlaceholder && !hasContent && depth >= 3;
-  const connector = depth === 0 ? "" : isLast ? "└─ " : "├─ ";
-
-  function simulateDocument() {
-    const docNames = [
-      "Contrato_firmado.pdf",
-      "Factura_2026-001.pdf",
-      "Presupuesto_v2.docx",
-      "Nota_informativa.pdf",
-      "Certificado_digital.p12",
-      "Escritura_publica.pdf",
-      "Poder_notarial.pdf",
-      "Acta_reunion.docx",
-    ];
-    const available = docNames.filter((d) => !simDocs.includes(d));
-    if (available.length === 0) return;
-    const pick = available[Math.floor(Math.random() * available.length)];
-    setSimDocs((prev) => [...prev, pick].sort((a, b) => a.localeCompare(b, "es", { numeric: true })));
-  }
-
-  return (
-    <div style={{ paddingLeft: depth > 0 ? 14 : 0 }}>
-      <div
-        className={`group/folder flex items-center gap-1 py-[2px] ${
-          isYear ? "rounded-md border border-dashed border-blue-500/20 bg-blue-500/5 px-1.5 my-0.5" : ""
-        } ${isGhost ? "opacity-40 hover:opacity-70 transition-opacity" : ""}`}
-      >
-        {depth > 0 && (
-          <span className={`text-[10px] font-mono select-none shrink-0 w-[20px] ${isGhost ? "text-zinc-800" : "text-zinc-700"}`}>
-            {connector}
-          </span>
-        )}
-        {isYear ? (
-          <CalendarDays className="h-3 w-3 shrink-0 text-blue-400" />
-        ) : isPlaceholder ? (
-          <Folder className={`h-3 w-3 shrink-0 ${isGhost ? "text-zinc-800" : simDocs.length > 0 ? "text-amber-500" : "text-zinc-700"}`} />
-        ) : (
-          <Folder
-            className="h-3 w-3 shrink-0"
-            style={{ color: depth <= 1 ? accentColor : depth === 2 ? `${accentColor}90` : "#f59e0b" }}
-          />
-        )}
-        <span
-          className={`text-[11px] ${
-            isYear
-              ? "font-medium text-blue-400 italic"
-              : isGhost
-              ? "text-zinc-700 italic"
-              : isPlaceholder && simDocs.length > 0
-              ? "text-zinc-300 font-medium"
-              : isPlaceholder
-              ? "text-zinc-600 italic"
-              : depth === 0
-              ? "font-semibold text-zinc-300"
-              : depth <= 2
-              ? "font-medium text-zinc-400"
-              : "text-zinc-400"
-          }`}
-        >
-          {isYear ? `📅 ${node.name}` : node.name}
-          {isGhost && <span className="ml-1 text-[8px] text-zinc-800 font-normal">(vacía)</span>}
-          {simDocs.length > 0 && (
-            <span className="ml-1 text-[8px] text-emerald-500/70 font-normal">
-              ({simDocs.length} doc{simDocs.length > 1 ? "s" : ""})
-            </span>
-          )}
-        </span>
-        {/* Botón simular documento — solo en carpetas de nivel 3+ */}
-        {isPlaceholder && depth >= 3 && (
-          <button
-            onClick={simulateDocument}
-            className="ml-1 opacity-0 group-hover/folder:opacity-70 hover:!opacity-100 transition-opacity text-emerald-500"
-            title="Simular entrada de documento"
-          >
-            <FilePlus2 className="h-3 w-3" />
-          </button>
-        )}
-      </div>
-      {/* Documentos simulados */}
-      {simDocs.map((doc) => (
-        <div key={doc} style={{ paddingLeft: 14 }} className="flex items-center gap-1 py-[1px] animate-in fade-in slide-in-from-left-2 duration-300">
-          <span className="text-[10px] font-mono select-none shrink-0 w-[20px] text-zinc-800">
-            ├─
-          </span>
-          <FileText className="h-2.5 w-2.5 shrink-0 text-emerald-500/60" />
-          <span className="text-[10px] text-emerald-400/80">{doc}</span>
-          <span className="text-[7px] text-zinc-700 uppercase font-bold">sim</span>
-        </div>
-      ))}
-      {node.children.map((child, i) => (
-        <FolderTreeView
-          key={`${child.name}-${i}`}
-          node={child}
-          depth={depth + 1}
-          accentColor={accentColor}
-          isLast={i === node.children.length - 1}
-        />
-      ))}
-    </div>
-  );
-}

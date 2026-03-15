@@ -16,7 +16,7 @@
 //   4. Devolver un plan de ejecucion sin ejecutar (dry-run)
 // ============================================================================
 
-import { isYearTag } from "@/lib/services/driveMock.service";
+import { isYearTag } from "@/lib/utils/dateHelpers";
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 

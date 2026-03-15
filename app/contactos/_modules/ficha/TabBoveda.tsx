@@ -31,7 +31,9 @@ import {
   GripVertical,
   Loader2,
   Download,
+  ShieldCheck,
 } from "lucide-react";
+import { DOC_PERMANENTE_NOMBRE } from "@/lib/services/docPermanente.constants";
 import type { CarpetaNode } from "@/lib/services/bovedaTree.service";
 import {
   getCarpetasTree,
@@ -167,18 +169,23 @@ function CarpetaTreeNode({
   const isBlueprint = node.es_blueprint;
   const isInteligente = node.tipo === "INTELIGENTE";
   const isSelected = selectedNodeId === node.id;
+  const isDocPermanente = node.nombre === DOC_PERMANENTE_NOMBRE && depth === 0;
 
-  const FolderIcon = isBlueprint
-    ? FolderLock
-    : expanded
-      ? FolderOpen
-      : Folder;
+  const FolderIcon = isDocPermanente
+    ? ShieldCheck
+    : isBlueprint
+      ? FolderLock
+      : expanded
+        ? FolderOpen
+        : Folder;
 
-  const folderColorClass = isBlueprint
-    ? "text-amber-500/70"
-    : isInteligente
-      ? "text-blue-400"
-      : "text-zinc-400";
+  const folderColorClass = isDocPermanente
+    ? "text-emerald-400"
+    : isBlueprint
+      ? "text-amber-400"
+      : isInteligente
+        ? "text-blue-400"
+        : "text-zinc-300";
 
   // Drag handlers para carpetas
   function handleDragStart(e: DragEvent) {
@@ -245,19 +252,35 @@ function CarpetaTreeNode({
         )}
 
         {/* Icon */}
-        <FolderIcon className={`h-3.5 w-3.5 shrink-0 ${folderColorClass}`} />
+        <span
+          title={
+            isDocPermanente
+              ? "Documentación Permanente — NIF, Escrituras, Poderes. Compartida con todo el Holding."
+              : isBlueprint
+                ? "Estructura de plantilla — no se puede mover ni borrar"
+                : isInteligente
+                  ? "Carpeta creada automáticamente por asignación de servicio"
+                  : undefined
+          }
+          className="shrink-0 flex items-center"
+        >
+          <FolderIcon className={`h-3.5 w-3.5 ${folderColorClass}`} />
+        </span>
 
         {/* Name */}
-        <span className={`text-xs truncate flex-1 ${isBlueprint ? "text-zinc-500 italic" : "text-zinc-300"}`}>
+        <span className={`text-xs truncate flex-1 ${isBlueprint ? "text-zinc-400" : "text-zinc-300"}`}>
           {node.nombre}
         </span>
 
         {/* Badges */}
-        {isInteligente && !isBlueprint && (
+        {isDocPermanente && (
+          <span className="rounded bg-emerald-950/30 px-1.5 py-0.5 text-[10px] font-mono font-semibold text-emerald-300 shrink-0" title="Documentación compartida con todo el Holding">UNIVERSAL</span>
+        )}
+        {isInteligente && !isBlueprint && !isDocPermanente && (
           <Zap className="h-2.5 w-2.5 text-blue-500/50 shrink-0" />
         )}
-        {isBlueprint && (
-          <span className="text-[9px] text-amber-600/60 font-mono shrink-0">BLUEPRINT</span>
+        {isBlueprint && !isDocPermanente && (
+          <span className="rounded bg-amber-950/30 px-1.5 py-0.5 text-[10px] font-mono font-semibold text-amber-300 shrink-0">BLUEPRINT</span>
         )}
 
         {/* File count */}
@@ -407,8 +430,9 @@ export function TabBoveda({ contactoId, onOpenConsejero, reloadKey = 0, tenantId
 
   async function confirmDelete() {
     if (!deleteTarget) return;
-    const result = await deleteCarpeta(deleteTarget.id);
+    const result = await deleteCarpeta(deleteTarget.id, tenantId);
     if (result.ok) await reload();
+    else alert(result.error);
     setDeleteTarget(null);
   }
 
@@ -416,9 +440,9 @@ export function TabBoveda({ contactoId, onOpenConsejero, reloadKey = 0, tenantId
     if (!dragPayload) return;
     startTransition(async () => {
       if (dragPayload.type === "carpeta") {
-        await moveCarpeta(dragPayload.id, targetCarpetaId, 0);
+        await moveCarpeta(dragPayload.id, targetCarpetaId, 0, tenantId);
       } else if (dragPayload.type === "archivo") {
-        await moveArchivo(dragPayload.id, targetCarpetaId, contactoId);
+        await moveArchivo(dragPayload.id, targetCarpetaId, contactoId, tenantId);
       }
       setDragPayload(null);
       await reload();

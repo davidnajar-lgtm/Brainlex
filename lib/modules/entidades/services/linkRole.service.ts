@@ -20,11 +20,17 @@
 export const LINK_ROLES = [
   "Cliente",
   "Pre-cliente",
-  "Proveedor",
-  "Contrario",
-  "Notario",
+  "Contacto",
   "Matriz",
 ] as const;
+
+/**
+ * Roles seleccionables al importar un contacto desde otra matriz.
+ * Excluye "Matriz" (se asigna automáticamente) y "Contacto" (es el default).
+ * Roles funcionales (Proveedor, Contrario, Notario, etc.) se gestionarán
+ * vía el sistema de etiquetas/atributos SALI, no como roles hardcodeados.
+ */
+export const IMPORT_ROLES = ["Cliente", "Pre-cliente"] as const;
 
 export type LinkRole = (typeof LINK_ROLES)[number];
 

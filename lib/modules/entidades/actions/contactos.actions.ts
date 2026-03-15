@@ -49,13 +49,13 @@ export type InlineAddressData = {
 // ─── Tipos resultado (solo para RSC — no re-exportados desde "use server") ────
 // Los clientes deben importar tipos desde @/lib/modules/entidades/validations/contacto.schema
 
-/** Contacto con link role opcional (presente cuando se filtra por tenant). */
+/** Contacto con link roles (todas las matrices vinculadas, no solo la activa). */
 export type ContactoWithLinkRole = Contacto & {
-  company_links?: { role: string | null }[];
+  company_links?: { company_id: string; role: string | null }[];
 };
 
 type GetContactosResult =
-  | { ok: true; data: ContactoWithLinkRole[] }
+  | { ok: true; data: ContactoWithLinkRole[]; nextCursor: string | null; hasMore: boolean }
   | { ok: false; error: string };
 
 type GetContactoResult =
@@ -104,10 +104,20 @@ function extractFieldErrors(
  * companyId = "LX" | "LW" → filtra vía ContactoCompanyLink
  * companyId = null         → bypass SuperAdmin (ve todos los contactos del Holding)
  */
-export async function getContactos(companyId?: string | null): Promise<GetContactosResult> {
+export async function getContactos(
+  companyId?: string | null,
+  cursor?: string | null,
+): Promise<GetContactosResult> {
   try {
-    const data = await contactoRepository.findByCompany(companyId ?? null);
-    return { ok: true, data };
+    const PAGE_SIZE = 50;
+    const rows = await contactoRepository.findByCompany(companyId ?? null, {
+      cursor: cursor ?? undefined,
+      take: PAGE_SIZE,
+    });
+    const hasMore = rows.length > PAGE_SIZE;
+    const data = hasMore ? rows.slice(0, PAGE_SIZE) : rows;
+    const nextCursor = hasMore ? data[data.length - 1].id : null;
+    return { ok: true, data, nextCursor, hasMore };
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Error desconocido al consultar Contactos.";
@@ -206,7 +216,7 @@ export async function createContacto(
   try {
     const resolvedCompanyId = companyId || await contactoRepository.ensureDefaultSociedad();
 
-    await prisma.$transaction(async (tx) => {
+    const newContactId = await prisma.$transaction(async (tx) => {
       // 1. Crear Contacto + company_link en una sola operación anidada
       const newContact = await tx.contacto.create({
         data: {
@@ -298,6 +308,20 @@ export async function createContacto(
           },
         });
       }
+
+      return newContact.id;
+    });
+
+    // REGLA CISO — AuditLog CREATE (fuera de la transacción: si falla el log,
+    // el contacto ya existe — preferimos contacto sin log a rollback total)
+    const displayName = data.razon_social?.trim()
+      || [data.nombre, data.apellido1].filter(Boolean).join(" ")
+      || "—";
+    await contactoRepository.appendAuditLog({
+      table_name: "contactos",
+      record_id:  newContactId,
+      action:     "CREATE",
+      notes:      `Contacto creado: ${displayName} (${data.tipo})`,
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
@@ -362,7 +386,10 @@ export async function updateContacto(
 
   // ── Persistencia ───────────────────────────────────────────────────────────
   try {
-    await contactoRepository.update(id, {
+    // Capturar estado previo para diff en AuditLog
+    const prev = await contactoRepository.findById(id);
+
+    const updateData = {
       tipo: data.tipo,
       nombre: data.nombre?.trim() || null,
       apellido1: data.apellido1?.trim() || null,
@@ -381,7 +408,35 @@ export async function updateContacto(
       website_url:     data.website_url?.trim()     || null,
       linkedin_url:    data.linkedin_url?.trim()    || null,
       canal_preferido: data.canal_preferido ?? "EMAIL",
+    };
+
+    // REGLA CISO — AuditLog ANTES de mutar (diff de campos cambiados)
+    const changedFields: string[] = [];
+    if (prev) {
+      const trackFields = [
+        "nombre", "apellido1", "apellido2", "razon_social", "fiscal_id",
+        "fiscal_id_tipo", "tipo_sociedad", "email_principal", "telefono_movil",
+        "telefono_fijo", "website_url", "linkedin_url", "canal_preferido",
+      ] as const;
+      for (const f of trackFields) {
+        const oldVal = (prev as Record<string, unknown>)[f] ?? null;
+        const newVal = (updateData as Record<string, unknown>)[f] ?? null;
+        if (String(oldVal) !== String(newVal)) {
+          changedFields.push(f);
+        }
+      }
+    }
+    const notes = changedFields.length > 0
+      ? `Campos editados: ${changedFields.join(", ")}`
+      : "Contacto guardado (sin cambios detectados)";
+    await contactoRepository.appendAuditLog({
+      table_name: "contactos",
+      record_id:  id,
+      action:     "UPDATE",
+      notes,
     });
+
+    await contactoRepository.update(id, updateData);
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       return { ok: false, error: p2002Message(err.meta?.target) };
@@ -703,6 +758,13 @@ export async function toggleIsActive(id: string): Promise<ToggleIsActiveResult> 
       select: { is_active: true },
     });
 
+    await contactoRepository.appendAuditLog({
+      table_name: "contactos",
+      record_id:  id,
+      action:     "UPDATE",
+      notes:      `is_active: ${current.is_active} → ${updated.is_active}`,
+    });
+
     revalidatePath("/contactos", "layout");
     revalidatePath("/");
     return { ok: true, is_active: updated.is_active };
@@ -714,7 +776,110 @@ export async function toggleIsActive(id: string): Promise<ToggleIsActiveResult> 
   }
 }
 
-// ─── toggleEsCliente ──────────────────────────────────────────────────────────
+// ─── updateLinkRole (per-tenant role mutation — Fase 10.08) ──────────────────
+
+import {
+  validateLinkRole,
+  canAssignRole,
+  type LinkRole,
+} from "@/lib/modules/entidades/services/linkRole.service";
+
+export type UpdateLinkRoleResult =
+  | { ok: true; newRole: string | null }
+  | { ok: false; error: string };
+
+/**
+ * Actualiza el role de un contacto en un tenant concreto.
+ *
+ * Lógica de toggle:
+ *   - Si requestedRole === currentRole → desactivar (role = null = "Contacto base")
+ *   - Si requestedRole !== currentRole → activar el nuevo rol
+ *
+ * Validaciones:
+ *   - canAssignRole: anti-autofacturación + unicidad de Matriz
+ *   - validateLinkRole: solo roles del sistema
+ *
+ * REGLA CISO L3: AuditLog ANTES de mutar.
+ *
+ * @param contactoId — ID del contacto
+ * @param companyId — Tenant activo
+ * @param requestedRole — Rol solicitado ("Cliente", "Pre-cliente", "Matriz", "Contacto")
+ */
+export async function updateLinkRole(
+  contactoId: string,
+  companyId: string,
+  requestedRole: LinkRole,
+): Promise<UpdateLinkRoleResult> {
+  // Validar que el rol es válido
+  if (!validateLinkRole(requestedRole)) {
+    return { ok: false, error: `Rol "${requestedRole}" no es válido.` };
+  }
+
+  try {
+    // Obtener links existentes para validación
+    const existingLinks = await prisma.contactoCompanyLink.findMany({
+      where: { contacto_id: contactoId },
+      select: { company_id: true, role: true },
+    });
+
+    const currentLink = existingLinks.find((l) => l.company_id === companyId);
+    if (!currentLink) {
+      return { ok: false, error: "El contacto no está vinculado a este tenant." };
+    }
+
+    // Toggle: si el rol solicitado es el mismo que el actual → desactivar
+    const newRole = currentLink.role === requestedRole ? null : requestedRole;
+
+    // Si activamos un rol (no es desactivación), validar reglas de negocio
+    if (newRole !== null) {
+      // Para validación, excluir el link actual del tenant destino
+      // (ya que estamos CAMBIANDO su rol, no añadiendo uno nuevo)
+      const otherLinks = existingLinks
+        .filter((l) => l.company_id !== companyId)
+        .map((l) => ({ company_id: l.company_id, role: l.role }));
+
+      const validation = canAssignRole({
+        role: newRole as LinkRole,
+        targetCompanyId: companyId,
+        existingLinks: otherLinks,
+      });
+
+      if (!validation.allowed) {
+        return { ok: false, error: validation.reason ?? "Rol no permitido." };
+      }
+    }
+
+    // REGLA CISO L3 — AuditLog ANTES de mutar
+    await prisma.$transaction(async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          action: "UPDATE",
+          table_name: "contacto_company_links",
+          record_id: contactoId,
+          old_data: { company_id: companyId, role: currentLink.role } as unknown as Prisma.InputJsonValue,
+          new_data: { company_id: companyId, role: newRole, section: "linkRole" } as unknown as Prisma.InputJsonValue,
+        },
+      });
+
+      await tx.contactoCompanyLink.update({
+        where: {
+          contacto_id_company_id: { contacto_id: contactoId, company_id: companyId },
+        },
+        data: { role: newRole },
+      });
+    });
+
+    revalidatePath(`/contactos/${contactoId}`);
+    revalidatePath("/contactos", "layout");
+    return { ok: true, newRole };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error al actualizar el rol.";
+    console.error("[updateLinkRole]", message);
+    return { ok: false, error: message };
+  }
+}
+
+// ─── toggleEsCliente (LEGACY — mantener por retrocompatibilidad) ─────────────
 
 export type ToggleEsClienteResult =
   | { ok: true; es_cliente: boolean; es_precliente: boolean }
@@ -744,6 +909,13 @@ export async function toggleEsCliente(id: string): Promise<ToggleEsClienteResult
         ...(newEsCliente && { es_precliente: false }),
       },
       select: { es_cliente: true, es_precliente: true },
+    });
+
+    await contactoRepository.appendAuditLog({
+      table_name: "contactos",
+      record_id:  id,
+      action:     "UPDATE",
+      notes:      `es_cliente: ${current.es_cliente} → ${updated.es_cliente}`,
     });
 
     revalidatePath("/contactos", "layout");
@@ -785,6 +957,13 @@ export async function toggleEsPrecliente(id: string): Promise<ToggleEsPreCliente
         ...(newEsPrecliente && { es_cliente: false }),
       },
       select: { es_precliente: true, es_cliente: true },
+    });
+
+    await contactoRepository.appendAuditLog({
+      table_name: "contactos",
+      record_id:  id,
+      action:     "UPDATE",
+      notes:      `es_precliente: ${current.es_precliente} → ${updated.es_precliente}`,
     });
 
     revalidatePath("/contactos", "layout");
@@ -839,6 +1018,13 @@ export async function toggleEsFacturadora(id: string): Promise<ToggleEsFacturado
         ...(newEsFacturadora && { es_cliente: false, es_precliente: false }),
       },
       select: { es_facturadora: true, es_cliente: true, es_precliente: true },
+    });
+
+    await contactoRepository.appendAuditLog({
+      table_name: "contactos",
+      record_id:  id,
+      action:     "UPDATE",
+      notes:      `es_facturadora: ${current.es_facturadora} → ${updated.es_facturadora}`,
     });
 
     revalidatePath("/contactos", "layout");
@@ -996,27 +1182,65 @@ export async function searchInQuarantine(
 export type DeleteContactoResult =
   | { ok: false;  error: string }
   | { ok: "quarantined"; message: string; expires_at: Date; reasons: string[] }
+  | { ok: "unlinked"; message: string }
   | undefined;
 
 /**
- * Eliminar un Contacto — delegado al Agente Legal (legalAgent.interceptDelete).
+ * Eliminar un Contacto — con protección multitenant.
  *
- * Flujo de 3 fases (Micro-Spec 1.2):
- *   FASE 1 — Auditoría:    checkLegalDependencies (expedientes, facturas, Drive).
- *   FASE 2 — Bloqueo:      si hay dependencias → QUARANTINE automática + 403.
- *   FASE 3 — Purga:        sin dependencias → DELETE físico + AuditLog(FORGET).
+ * REGLA MULTITENANT:
+ *   Si el contacto está vinculado a MÚLTIPLES tenants y se proporciona companyId,
+ *   solo se desvincula de ese tenant (elimina el ContactoCompanyLink).
+ *   El contacto sigue existiendo para los demás tenants.
+ *
+ *   Solo cuando el contacto está vinculado a UN ÚNICO tenant (o ninguno),
+ *   se delega al Agente Legal para el flujo completo de 3 fases:
+ *     FASE 1 — Auditoría:    checkLegalDependencies (expedientes, facturas, Drive).
+ *     FASE 2 — Bloqueo:      si hay dependencias → QUARANTINE automática + 403.
+ *     FASE 3 — Purga:        sin dependencias → DELETE físico + AuditLog(FORGET).
  *
  * REGLA CISO: el AuditLog se escribe SIEMPRE antes de mutar el estado.
- * MULTITENANT: opera sobre la entidad global sin restricción de company_id.
- *
- * El veredicto QUARANTINED no es un error — es una respuesta controlada al
- * cliente para que muestre el estado de cuarentena sin tratar el 403 como fallo.
  */
 export async function deleteContacto(
   id: string,
-  quarantine_reason?: string
+  quarantine_reason?: string,
+  companyId?: string
 ): Promise<DeleteContactoResult> {
   try {
+    // ── Protección multitenant: ¿está en más de un tenant? ────────────────
+    if (companyId) {
+      const links = await contactoRepository.getCompanyLinks(id);
+      if (links.length > 1) {
+        // Contacto compartido: solo desvincular de este tenant
+        // AuditLog ANTES de mutar — REGLA CISO
+        await contactoRepository.appendAuditLog({
+          table_name: "contactos",
+          record_id:  id,
+          action:     "UPDATE",
+          old_data:   { company_links: links },
+          new_data:   { unlinked_from: companyId },
+          notes:
+            `[DESVINCULACIÓN MULTITENANT] Contacto desvinculado del tenant ${companyId}. ` +
+            `El contacto permanece activo en ${links.filter(l => l.company_id !== companyId).map(l => l.company_id).join(", ")}. ` +
+            (quarantine_reason ? `Motivo: ${quarantine_reason}` : "Sin motivo especificado."),
+        });
+
+        await contactoRepository.unlinkFromCompany(id, companyId);
+        revalidatePath("/contactos", "layout");
+
+        const remainingTenants = links
+          .filter(l => l.company_id !== companyId)
+          .map(l => l.company_id)
+          .join(", ");
+
+        return {
+          ok:      "unlinked",
+          message: `Contacto desvinculado de ${companyId}. Sigue activo en: ${remainingTenants}.`,
+        };
+      }
+    }
+
+    // ── Tenant único (o sin companyId): flujo completo vía Agente Legal ──
     const verdict = await legalAgent.interceptDelete({
       contactoId: id,
       quarantine_reason,
@@ -1057,7 +1281,7 @@ export async function deleteContacto(
 // ─── vincularContactoAMatriz ─────────────────────────────────────────────────
 
 export type VincularResult =
-  | { ok: true }
+  | { ok: true; contactoId: string }
   | { ok: false; error: string };
 
 /**
@@ -1106,7 +1330,7 @@ export async function vincularContactoAMatriz(
 
     await contactoRepository.linkToCompany(contactoId, companyId, role);
     revalidatePath("/contactos", "layout");
-    return { ok: true };
+    return { ok: true, contactoId };
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Error al vincular contacto a la matriz.";
@@ -1114,3 +1338,223 @@ export async function vincularContactoAMatriz(
     return { ok: false, error: message };
   }
 }
+
+// ─── searchByName (detección de duplicados por nombre) ───────────────────────
+
+export type NameSearchHit = {
+  id:        string;
+  name:      string;
+  fiscal_id: string | null;
+  tenants:   string[];
+};
+
+export type SearchByNameResult =
+  | { ok: true; hits: NameSearchHit[] }
+  | { ok: false; error: string };
+
+/**
+ * Busca contactos activos por nombre normalizado (exact match, case-insensitive).
+ * Cross-matrix: busca en TODOS los tenants.
+ * Usado por el Alta Rápida para detección de duplicados cuando no hay NIF.
+ */
+export async function searchByName(
+  nombre?: string | null,
+  apellido1?: string | null,
+  razonSocial?: string | null,
+): Promise<SearchByNameResult> {
+  try {
+    const results = await contactoRepository.findByNormalizedName(
+      nombre ?? "",
+      apellido1,
+      razonSocial,
+    );
+
+    const hits: NameSearchHit[] = results.map((c) => ({
+      id: c.id,
+      name: c.razon_social
+        || [c.nombre, c.apellido1, c.apellido2].filter(Boolean).join(" ")
+        || "—",
+      fiscal_id: c.fiscal_id
+        ? `${c.fiscal_id_tipo ?? ""} ${c.fiscal_id}`.trim()
+        : null,
+      tenants: c.company_links.map((l) => l.company_id),
+    }));
+
+    return { ok: true, hits };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error al buscar por nombre.";
+    console.error("[searchByName]", message);
+    return { ok: false, error: message };
+  }
+}
+
+// ─── quickCreateContacto (Alta Rápida — SIN_REGISTRO) ───────────────────────
+
+export type QuickCreateInput = {
+  tipo: "PERSONA_FISICA" | "PERSONA_JURIDICA";
+  nombre?: string | null;
+  apellido1?: string | null;
+  apellido2?: string | null;
+  razon_social?: string | null;
+  email_principal?: string | null;
+  telefono_movil?: string | null;
+};
+
+export type QuickCreateResult =
+  | { ok: true; contactoId: string }
+  | { ok: false; error: string };
+
+/**
+ * Alta Rápida: crea un contacto con datos mínimos + SIN_REGISTRO.
+ *
+ * Solo requiere:
+ *   - tipo (PF/PJ)
+ *   - nombre (PF) o razon_social (PJ)
+ *
+ * fiscal_id_tipo se fuerza a SIN_REGISTRO, fiscal_id a null.
+ * El contacto queda "pendiente fiscal" hasta que se complete su ficha.
+ *
+ * @param companyId — Tenant activo donde se vincula el contacto.
+ * @param role — Rol en el tenant (default: null = Contacto).
+ */
+export async function quickCreateContacto(
+  input: QuickCreateInput,
+  companyId: string,
+  role?: string | null,
+): Promise<QuickCreateResult> {
+  // Validación mínima
+  if (input.tipo === "PERSONA_FISICA" && !input.nombre?.trim()) {
+    return { ok: false, error: "El nombre es obligatorio." };
+  }
+  if (input.tipo === "PERSONA_JURIDICA" && !input.razon_social?.trim()) {
+    return { ok: false, error: "La razón social es obligatoria." };
+  }
+
+  try {
+    const contacto = await contactoRepository.create(
+      {
+        tipo:            input.tipo,
+        nombre:          input.nombre?.trim().toUpperCase()       || null,
+        apellido1:       input.apellido1?.trim().toUpperCase()    || null,
+        apellido2:       input.apellido2?.trim().toUpperCase()    || null,
+        razon_social:    input.razon_social?.trim().toUpperCase() || null,
+        fiscal_id:       null,
+        fiscal_id_tipo:  FiscalIdTipo.SIN_REGISTRO,
+        email_principal: input.email_principal?.trim()            || null,
+        telefono_movil:  input.telefono_movil?.trim()             || null,
+      },
+      companyId,
+    );
+
+    // Asignar rol si se proporcionó
+    if (role) {
+      await contactoRepository.linkToCompany(contacto.id, companyId, role);
+    }
+
+    // REGLA CISO — AuditLog CREATE
+    const displayName = input.razon_social?.trim()
+      || [input.nombre, input.apellido1].filter(Boolean).join(" ")
+      || "—";
+    await contactoRepository.appendAuditLog({
+      table_name: "contactos",
+      record_id:  contacto.id,
+      action:     "CREATE",
+      notes:      `Alta rápida: ${displayName} (${input.tipo})`,
+    });
+
+    revalidatePath("/contactos", "layout");
+    return { ok: true, contactoId: contacto.id };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error al crear el contacto rápido.";
+    console.error("[quickCreateContacto]", message);
+    return { ok: false, error: message };
+  }
+}
+
+// ─── searchGlobalContactos (Radar de Adopción — búsqueda cross-tenant) ──────
+
+/**
+ * NIF enmascarado para privacidad cross-tenant.
+ * "12345678A" → "*****678A"  |  "B12345678" → "B****5678"
+ */
+function maskFiscalId(fiscalId: string | null, tipo: string | null): string | null {
+  if (!fiscalId) return null;
+  const id = fiscalId.trim();
+  if (id.length <= 4) return "****";
+  const visible = id.slice(-4);
+  const masked  = "*".repeat(id.length - 4);
+  const label   = tipo ? `${tipo} ` : "";
+  return `${label}${masked}${visible}`;
+}
+
+export type GlobalSearchHit = {
+  id:              string;
+  name:            string;
+  tipo:            "PERSONA_FISICA" | "PERSONA_JURIDICA";
+  maskedFiscalId:  string | null;
+  tenants:         string[];
+  /** true si ya está vinculado al tenant activo del usuario */
+  isInCurrentTenant: boolean;
+};
+
+export type GlobalSearchResult =
+  | { ok: true; hits: GlobalSearchHit[] }
+  | { ok: false; error: string };
+
+/**
+ * @Security-CISO — Búsqueda global de contactos por nombre, cross-tenant.
+ *
+ * Retorna Nombre, Tipo (PF/PJ) y NIF enmascarado (*****123A).
+ * NO retorna datos sensibles completos entre matrices distintas.
+ * Busca contactos ACTIVOS en todo el Holding.
+ *
+ * @param query — Texto libre: nombre (PF) o razón social (PJ)
+ * @param currentTenantId — Tenant activo del usuario (para marcar isInCurrentTenant)
+ */
+export async function searchGlobalContactos(
+  query: string,
+  currentTenantId: string,
+): Promise<GlobalSearchResult> {
+  try {
+    const q = query.trim();
+    if (q.length < 2) return { ok: true, hits: [] };
+
+    // Búsqueda amplia: nombre CONTAINS (no exact match como searchByName)
+    const results = await prisma.contacto.findMany({
+      where: {
+        status: ContactoStatus.ACTIVE,
+        OR: [
+          { nombre:       { contains: q, mode: "insensitive" } },
+          { apellido1:    { contains: q, mode: "insensitive" } },
+          { razon_social: { contains: q, mode: "insensitive" } },
+        ],
+      },
+      include: {
+        company_links: { select: { company_id: true } },
+      },
+      take: 8,
+      orderBy: { created_at: "desc" },
+    });
+
+    const hits: GlobalSearchHit[] = results.map((c) => {
+      const tenants = c.company_links.map((l) => l.company_id);
+      return {
+        id:   c.id,
+        name: c.razon_social
+          || [c.nombre, c.apellido1, c.apellido2].filter(Boolean).join(" ")
+          || "—",
+        tipo: c.tipo as "PERSONA_FISICA" | "PERSONA_JURIDICA",
+        maskedFiscalId: maskFiscalId(c.fiscal_id, c.fiscal_id_tipo),
+        tenants,
+        isInCurrentTenant: tenants.includes(currentTenantId),
+      };
+    });
+
+    return { ok: true, hits };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error en búsqueda global.";
+    console.error("[searchGlobalContactos]", message);
+    return { ok: false, error: message };
+  }
+}
+

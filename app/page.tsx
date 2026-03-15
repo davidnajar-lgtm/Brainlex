@@ -1,20 +1,9 @@
 // Dashboard principal — BrainLex ERP
 import { prisma } from "@/lib/prisma";
+import { ContactosKpiCard } from "./_components/ContactosKpiCard";
 
-function buildStats(contactosActivos: number, cuarentena: number) {
+function buildStats(cuarentena: number) {
   return [
-  {
-    label: "Contactos activos",
-    value: String(contactosActivos),
-    sub: "Clientes y contactos",
-    iconBg: "bg-blue-500/10",
-    iconColor: "text-blue-400",
-    icon: (
-      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-      </svg>
-    ),
-  },
   {
     label: "Expedientes abiertos",
     value: "—",
@@ -62,11 +51,18 @@ const QUICK_ACTIONS = [
 
 
 export default async function DashboardPage() {
-  const [contactosActivos, cuarentena] = await Promise.all([
-    prisma.contacto.count({ where: { status: "ACTIVE", is_active: true } }),
-    prisma.contacto.count({ where: { status: "QUARANTINE" } }),
-  ]);
-  const STATS = buildStats(contactosActivos, cuarentena);
+  const [contactosTotal, contactosLX, contactosLW, cuarentena] =
+    await Promise.all([
+      prisma.contacto.count({ where: { status: "ACTIVE", is_active: true } }),
+      prisma.contactoCompanyLink.count({
+        where: { company_id: "LX", contacto: { status: "ACTIVE", is_active: true } },
+      }),
+      prisma.contactoCompanyLink.count({
+        where: { company_id: "LW", contacto: { status: "ACTIVE", is_active: true } },
+      }),
+      prisma.contacto.count({ where: { status: "QUARANTINE" } }),
+    ]);
+  const STATS = buildStats(cuarentena);
 
   return (
     <div className="space-y-5">
@@ -91,6 +87,11 @@ export default async function DashboardPage() {
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <ContactosKpiCard
+          total={contactosTotal}
+          lx={contactosLX}
+          lw={contactosLW}
+        />
         {STATS.map((stat) => (
           <div
             key={stat.label}

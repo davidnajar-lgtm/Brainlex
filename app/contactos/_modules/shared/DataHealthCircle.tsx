@@ -14,6 +14,8 @@ interface DataHealthCircleProps {
   strokeWidth?: number; // px (default 4)
   showLabel?: boolean;  // show numeric % inside (default true)
   className?: string;
+  /** Native tooltip text (shows missing fields). */
+  tooltip?: string;
 }
 
 export function DataHealthCircle({
@@ -22,6 +24,7 @@ export function DataHealthCircle({
   strokeWidth = 4,
   showLabel = true,
   className,
+  tooltip,
 }: DataHealthCircleProps) {
   const radius  = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -37,6 +40,7 @@ export function DataHealthCircle({
       className={className}
       aria-label={`Completitud de ficha: ${score}%`}
       role="img"
+      {...(tooltip ? { title: tooltip } : {})}
     >
       {/* Track */}
       <circle

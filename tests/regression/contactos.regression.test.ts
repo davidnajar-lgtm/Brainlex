@@ -19,7 +19,9 @@
 import { describe, it, expect } from "vitest";
 
 import {
-  TaxonomyManager,
+  assertFixedCommField,
+  auditCommFields,
+  assertCanalTipo,
   SchemaVetoError,
   CONTACTO_FIXED_COMM_FIELDS,
   ALLOWED_CANAL_TIPOS,
@@ -41,33 +43,33 @@ import {
 describe("TaxonomyManager — Blindaje de Campos Fijos", () => {
   it("acepta todos los Campos Fijos de comunicación sin lanzar error", () => {
     for (const field of CONTACTO_FIXED_COMM_FIELDS) {
-      expect(() => TaxonomyManager.assertFixedCommField(field)).not.toThrow();
+      expect(() => assertFixedCommField(field)).not.toThrow();
     }
   });
 
   it("lanza SchemaVetoError si se intenta añadir un campo ad-hoc 'telegram_url'", () => {
-    expect(() => TaxonomyManager.assertFixedCommField("telegram_url"))
+    expect(() => assertFixedCommField("telegram_url"))
       .toThrow(SchemaVetoError);
   });
 
   it("lanza SchemaVetoError si se intenta añadir un campo ad-hoc 'tiktok_url'", () => {
-    expect(() => TaxonomyManager.assertFixedCommField("tiktok_url"))
+    expect(() => assertFixedCommField("tiktok_url"))
       .toThrow(SchemaVetoError);
   });
 
   it("lanza SchemaVetoError si se intenta añadir un campo ad-hoc 'instagram_url'", () => {
-    expect(() => TaxonomyManager.assertFixedCommField("instagram_url"))
+    expect(() => assertFixedCommField("instagram_url"))
       .toThrow(SchemaVetoError);
   });
 
   it("lanza SchemaVetoError si se intenta añadir un campo de base de datos inventado", () => {
-    expect(() => TaxonomyManager.assertFixedCommField("numero_extraño"))
+    expect(() => assertFixedCommField("numero_extraño"))
       .toThrow(SchemaVetoError);
   });
 
   it("el error SchemaVetoError indica el campo problemático", () => {
     try {
-      TaxonomyManager.assertFixedCommField("facebook_url");
+      assertFixedCommField("facebook_url");
     } catch (err) {
       expect(err).toBeInstanceOf(SchemaVetoError);
       if (err instanceof SchemaVetoError) {
@@ -84,7 +86,7 @@ describe("TaxonomyManager — Blindaje de Campos Fijos", () => {
       telegram_handle: "@juan",   // ← campo no autorizado
     };
 
-    const violations = TaxonomyManager.auditCommFields(illegalPayload);
+    const violations = auditCommFields(illegalPayload);
     expect(violations).toContain("telegram_handle");
     expect(violations).not.toContain("nombre");
     expect(violations).not.toContain("email_principal");
@@ -97,7 +99,7 @@ describe("TaxonomyManager — Blindaje de Campos Fijos", () => {
       telefono_movil:  "+34600000000",
     };
 
-    const violations = TaxonomyManager.auditCommFields(cleanPayload);
+    const violations = auditCommFields(cleanPayload);
     expect(violations).toHaveLength(0);
   });
 });
@@ -109,22 +111,22 @@ describe("TaxonomyManager — Blindaje de Campos Fijos", () => {
 describe("TaxonomyManager — Whitelist de CanalTipo", () => {
   it("acepta todos los CanalTipos de la whitelist sin error", () => {
     for (const tipo of ALLOWED_CANAL_TIPOS) {
-      expect(() => TaxonomyManager.assertCanalTipo(tipo)).not.toThrow();
+      expect(() => assertCanalTipo(tipo)).not.toThrow();
     }
   });
 
   it("lanza SchemaVetoError para tipo 'TELEGRAM' (no en whitelist)", () => {
-    expect(() => TaxonomyManager.assertCanalTipo("TELEGRAM"))
+    expect(() => assertCanalTipo("TELEGRAM"))
       .toThrow(SchemaVetoError);
   });
 
   it("lanza SchemaVetoError para tipo 'TIKTOK' (no en whitelist)", () => {
-    expect(() => TaxonomyManager.assertCanalTipo("TIKTOK"))
+    expect(() => assertCanalTipo("TIKTOK"))
       .toThrow(SchemaVetoError);
   });
 
   it("lanza SchemaVetoError para tipo en minúsculas (case-sensitive)", () => {
-    expect(() => TaxonomyManager.assertCanalTipo("telefono"))
+    expect(() => assertCanalTipo("telefono"))
       .toThrow(SchemaVetoError);
   });
 });

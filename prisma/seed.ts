@@ -232,13 +232,13 @@ async function main() {
   for (const tipo of TIPOS_RELACION) {
     await prisma.tipoRelacion.upsert({
       where:  { nombre: tipo.nombre },
-      update: { color: tipo.color, categoria: tipo.categoria, descripcion: tipo.descripcion, es_sistema: true },
+      update: { color: tipo.color, categoria: tipo.categoria, descripcion: tipo.descripcion, es_sistema: false },
       create: {
         nombre:      tipo.nombre,
         color:       tipo.color,
         categoria:   tipo.categoria,
         descripcion: tipo.descripcion,
-        es_sistema:  true,
+        es_sistema:  false,
       },
     });
     console.log(`       · ${tipo.nombre} [${tipo.categoria}]`);

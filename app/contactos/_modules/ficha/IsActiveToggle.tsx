@@ -19,15 +19,22 @@ interface IsActiveToggleProps {
 export function IsActiveToggle({ contactoId, initialIsActive }: IsActiveToggleProps) {
   const [isActive, setIsActive]  = useState(initialIsActive);
   const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
 
   function handleToggle() {
+    setError(null);
     startTransition(async () => {
       const result = await toggleIsActive(contactoId);
-      if (result.ok) setIsActive(result.is_active);
+      if (result.ok) {
+        setIsActive(result.is_active);
+      } else {
+        setError(result.error ?? "Error al cambiar estado");
+      }
     });
   }
 
   return (
+    <>
     <button
       onClick={handleToggle}
       disabled={isPending}
@@ -48,5 +55,9 @@ export function IsActiveToggle({ contactoId, initialIsActive }: IsActiveTogglePr
       />
       {isActive ? "Activo" : "Inactivo"}
     </button>
+    {error && (
+      <p className="mt-1 text-xs text-red-400">{error}</p>
+    )}
+    </>
   );
 }

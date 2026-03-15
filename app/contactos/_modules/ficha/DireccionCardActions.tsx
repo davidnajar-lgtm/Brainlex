@@ -10,6 +10,7 @@ import { useTransition, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, Trash2 } from "lucide-react";
 import { eliminarDireccion } from "@/lib/modules/entidades/actions/filiacion.actions";
+import { useTenant } from "@/lib/context/TenantContext";
 
 export function DireccionCardActions({
   id,
@@ -21,14 +22,21 @@ export function DireccionCardActions({
   onEdit:     () => void;
 }) {
   const router = useRouter();
+  const { tenant } = useTenant();
   const [isPending, startTransition] = useTransition();
   const [showConfirm, setShowConfirm] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   function handleConfirm() {
     setShowConfirm(false);
+    setError(null);
     startTransition(async () => {
-      await eliminarDireccion(id, contactoId);
-      router.refresh();
+      const result = await eliminarDireccion(id, contactoId, tenant.id);
+      if (result.ok) {
+        router.refresh();
+      } else {
+        setError(result.error ?? "Error al eliminar la dirección");
+      }
     });
   }
 
@@ -40,6 +48,7 @@ export function DireccionCardActions({
           type="button"
           onClick={onEdit}
           className="rounded p-1 text-zinc-700 transition-colors hover:bg-zinc-800 hover:text-blue-400"
+          aria-label="Editar dirección"
           title="Editar dirección"
         >
           <Pencil className="h-3.5 w-3.5" />
@@ -51,6 +60,7 @@ export function DireccionCardActions({
           onClick={() => setShowConfirm(true)}
           disabled={isPending}
           className="rounded p-1 text-zinc-700 transition-colors hover:bg-zinc-800 hover:text-red-400 disabled:opacity-40"
+          aria-label="Borrar dirección"
           title="Borrar dirección"
         >
           <Trash2 className="h-3.5 w-3.5" />
@@ -88,6 +98,9 @@ export function DireccionCardActions({
             </div>
           </div>
         </div>
+      )}
+      {error && (
+        <p className="mt-1 text-xs text-red-400">{error}</p>
       )}
     </>
   );

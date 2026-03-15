@@ -32,7 +32,7 @@ export function EntityActions({ contact }: EntityActionsProps) {
   );
 
   return (
-    <div className="print:hidden flex w-full flex-wrap items-center gap-1.5">
+    <>
       {/* Imprimir ficha — funcional Fase 2 */}
       <ActionButton
         onClick={exportToPrint}
@@ -62,7 +62,7 @@ export function EntityActions({ contact }: EntityActionsProps) {
         <Mail className="h-3.5 w-3.5" />
         Email
       </a>
-    </div>
+    </>
   );
 }
 

@@ -10,6 +10,7 @@
 
 import { getContactos } from "@/lib/modules/entidades/actions/contactos.actions";
 import { ContactosClient } from "./ContactosClient";
+import { QuickCreateModal } from "./_modules/shared/QuickCreateModal";
 
 // ─── Empty State ──────────────────────────────────────────────────────────────
 
@@ -38,15 +39,9 @@ function EmptyState() {
         Aún no hay Contactos registrados. Crea el primero para comenzar a
         gestionar clientes y contactos.
       </p>
-      <a
-        href="/contactos/nuevo"
-        className="mt-7 inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-orange-500/20 transition-colors hover:bg-orange-600 active:bg-orange-700"
-      >
-        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-        </svg>
-        Añadir Nuevo Contacto
-      </a>
+      <div className="mt-7">
+        <QuickCreateModal />
+      </div>
     </div>
   );
 }
@@ -86,15 +81,7 @@ export default async function ContactosPage() {
         </div>
 
         {result.ok && result.data.length > 0 && (
-          <a
-            href="/contactos/nuevo"
-            className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-orange-500/20 transition-colors hover:bg-orange-600"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            Nuevo Contacto
-          </a>
+          <QuickCreateModal />
         )}
       </div>
 
@@ -103,7 +90,11 @@ export default async function ContactosPage() {
       ) : result.data.length === 0 ? (
         <EmptyState />
       ) : (
-        <ContactosClient contactos={result.data} />
+        <ContactosClient
+          contactos={result.data}
+          initialNextCursor={result.nextCursor}
+          initialHasMore={result.hasMore}
+        />
       )}
     </div>
   );

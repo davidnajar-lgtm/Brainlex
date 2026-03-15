@@ -9,14 +9,46 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { isValidPhoneNumber } from "libphonenumber-js";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { normalizeAddress } from "@/lib/utils/normalizeAddress";
 
 // ─── Result type ──────────────────────────────────────────────────────────────
 
 export type ActionResult =
-  | { success: true }
-  | { success: false; errors: Partial<Record<string, string[]>> };
+  | { ok: true }
+  | { ok: false; error: string; fieldErrors?: Partial<Record<string, string[]>> };
+
+// ─── @Scope-Guard: Validación multitenant para operaciones de filiación ─────
+
+/**
+ * REGLA CISO — Protección multitenant:
+ * Verifica que el contacto está vinculado al tenant solicitante antes
+ * de permitir operaciones de creación/edición/eliminación de direcciones y canales.
+ * Sin companyId (SuperAdmin) → permitido.
+ */
+async function assertTenantAccess(
+  contactoId: string,
+  companyId: string | null | undefined,
+): Promise<{ allowed: true } | { allowed: false; result: ActionResult }> {
+  if (!companyId) return { allowed: true };
+
+  const linkCount = await prisma.contactoCompanyLink.count({
+    where: { contacto_id: contactoId, company_id: companyId },
+  });
+
+  if (linkCount === 0) {
+    return {
+      allowed: false,
+      result: {
+        ok: false,
+        error: `El contacto no está vinculado a ${companyId}. Operación denegada.`,
+      },
+    };
+  }
+
+  return { allowed: true };
+}
 
 // ─── Helpers de formateo (aplicados en el backend antes del INSERT) ───────────
 
@@ -136,8 +168,13 @@ export async function crearDireccion(
 
   const parsed = DireccionSchema.safeParse(raw);
   if (!parsed.success) {
-    return { success: false, errors: parsed.error.flatten().fieldErrors };
+    return { ok: false, error: "Errores de validación", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+
+  // REGLA CISO — Protección multitenant
+  const companyId = formData.get("companyId")?.toString() || null;
+  const access = await assertTenantAccess(parsed.data.contactoId, companyId);
+  if (!access.allowed) return access.result;
 
   // ── Formateo robusto aplicado DESPUÉS de validación, ANTES del INSERT ──────
   const data = {
@@ -153,6 +190,17 @@ export async function crearDireccion(
   };
 
   await prisma.$transaction(async (tx) => {
+    // REGLA CISO L3 — AuditLog ANTES de mutar
+    await tx.auditLog.create({
+      data: {
+        action: "CREATE",
+        table_name: "direcciones",
+        record_id: data.contactoId,
+        old_data: Prisma.JsonNull,
+        new_data: { section: "direccion", ...data } as unknown as Prisma.InputJsonValue,
+      },
+    });
+
     if (data.es_principal) {
       await tx.direccion.updateMany({
         where: { contactoId: data.contactoId, es_principal: true },
@@ -162,7 +210,7 @@ export async function crearDireccion(
     await tx.direccion.create({ data });
   });
   revalidatePath(`/contactos/${data.contactoId}`);
-  return { success: true };
+  return { ok: true };
 }
 
 // ─── eliminarDireccion ────────────────────────────────────────────────────────
@@ -170,9 +218,34 @@ export async function crearDireccion(
 export async function eliminarDireccion(
   id: string,
   contactoId: string,
-): Promise<void> {
-  await prisma.direccion.delete({ where: { id } });
-  revalidatePath(`/contactos/${contactoId}`);
+  companyId?: string | null,
+): Promise<ActionResult> {
+  try {
+    // REGLA CISO — Protección multitenant
+    const access = await assertTenantAccess(contactoId, companyId);
+    if (!access.allowed) return access.result;
+
+    // REGLA CISO L3 — AuditLog ANTES de mutar
+    const before = await prisma.direccion.findUnique({ where: { id } });
+
+    await prisma.$transaction(async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          action: "UPDATE",
+          table_name: "direcciones",
+          record_id: contactoId,
+          old_data: before as unknown as Prisma.InputJsonValue,
+          new_data: { section: "direccion", deleted_id: id } as unknown as Prisma.InputJsonValue,
+        },
+      });
+      await tx.direccion.delete({ where: { id } });
+    });
+    revalidatePath(`/contactos/${contactoId}`);
+    return { ok: true };
+  } catch (err) {
+    console.error("[eliminarDireccion] Error:", err);
+    return { ok: false, error: "Error al eliminar la dirección." };
+  }
 }
 
 // ─── crearCanal ───────────────────────────────────────────────────────────────
@@ -193,8 +266,13 @@ export async function crearCanal(
 
   const parsed = CanalSchema.safeParse(raw);
   if (!parsed.success) {
-    return { success: false, errors: parsed.error.flatten().fieldErrors };
+    return { ok: false, error: "Errores de validación", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+
+  // REGLA CISO — Protección multitenant
+  const companyId = formData.get("companyId")?.toString() || null;
+  const access = await assertTenantAccess(parsed.data.contactoId, companyId);
+  if (!access.allowed) return access.result;
 
   // ── Formateo robusto: etiqueta en MAYÚSCULAS ──────────────────────────────
   const data = {
@@ -203,6 +281,17 @@ export async function crearCanal(
   };
 
   await prisma.$transaction(async (tx) => {
+    // REGLA CISO L3 — AuditLog ANTES de mutar
+    await tx.auditLog.create({
+      data: {
+        action: "CREATE",
+        table_name: "canales_comunicacion",
+        record_id: data.contactoId,
+        old_data: Prisma.JsonNull,
+        new_data: { section: "canal", ...data } as unknown as Prisma.InputJsonValue,
+      },
+    });
+
     // TAREA 3: primer canal de este tipo → favorito automático
     const existingCount = await tx.canalComunicacion.count({
       where: { contactoId: data.contactoId, tipo: data.tipo },
@@ -225,18 +314,36 @@ export async function crearCanal(
     await tx.canalComunicacion.create({ data: { ...data, es_favorito: esFavorito } });
 
     // TAREA 1: sync caché de la tabla principal
+    const cacheUpdate: Record<string, string> = {};
     if (esFavorito && data.tipo === "TELEFONO") {
       if (data.subtipo === "FIJO") {
-        await tx.contacto.update({ where: { id: data.contactoId }, data: { telefono_fijo: data.valor } });
+        cacheUpdate.telefono_fijo = data.valor;
       } else {
-        await tx.contacto.update({ where: { id: data.contactoId }, data: { telefono_movil: data.valor } });
+        cacheUpdate.telefono_movil = data.valor;
       }
     } else if (data.es_principal && data.tipo === "EMAIL") {
-      await tx.contacto.update({ where: { id: data.contactoId }, data: { email_principal: data.valor } });
+      cacheUpdate.email_principal = data.valor;
+    }
+
+    // Auto canal_preferido: si el contacto no tiene canal preferido definido,
+    // establecerlo automáticamente al tipo del primer canal relevante
+    if (existingCount === 0) {
+      const contacto = await tx.contacto.findUnique({
+        where: { id: data.contactoId },
+        select: { canal_preferido: true },
+      });
+      if (!contacto?.canal_preferido) {
+        if (data.tipo === "EMAIL") cacheUpdate.canal_preferido = "EMAIL";
+        else if (data.tipo === "TELEFONO" || data.tipo === "WHATSAPP") cacheUpdate.canal_preferido = "MOVIL";
+      }
+    }
+
+    if (Object.keys(cacheUpdate).length > 0) {
+      await tx.contacto.update({ where: { id: data.contactoId }, data: cacheUpdate });
     }
   });
   revalidatePath(`/contactos/${data.contactoId}`);
-  return { success: true };
+  return { ok: true };
 }
 
 // ─── eliminarCanal ────────────────────────────────────────────────────────────
@@ -244,9 +351,34 @@ export async function crearCanal(
 export async function eliminarCanal(
   id: string,
   contactoId: string,
-): Promise<void> {
-  await prisma.canalComunicacion.delete({ where: { id } });
-  revalidatePath(`/contactos/${contactoId}`);
+  companyId?: string | null,
+): Promise<ActionResult> {
+  try {
+    // REGLA CISO — Protección multitenant
+    const access = await assertTenantAccess(contactoId, companyId);
+    if (!access.allowed) return access.result;
+
+    // REGLA CISO L3 — AuditLog ANTES de mutar
+    const before = await prisma.canalComunicacion.findUnique({ where: { id } });
+
+    await prisma.$transaction(async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          action: "UPDATE",
+          table_name: "canales_comunicacion",
+          record_id: contactoId,
+          old_data: before as unknown as Prisma.InputJsonValue,
+          new_data: { section: "canal", deleted_id: id } as unknown as Prisma.InputJsonValue,
+        },
+      });
+      await tx.canalComunicacion.delete({ where: { id } });
+    });
+    revalidatePath(`/contactos/${contactoId}`);
+    return { ok: true };
+  } catch (err) {
+    console.error("[eliminarCanal] Error:", err);
+    return { ok: false, error: "Error al eliminar el canal." };
+  }
 }
 
 // ─── editarDireccion ──────────────────────────────────────────────────────────
@@ -271,8 +403,13 @@ export async function editarDireccion(
 
   const parsed = DireccionUpdateSchema.safeParse(raw);
   if (!parsed.success) {
-    return { success: false, errors: parsed.error.flatten().fieldErrors };
+    return { ok: false, error: "Errores de validación", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+
+  // REGLA CISO — Protección multitenant
+  const companyId = formData.get("companyId")?.toString() || null;
+  const access = await assertTenantAccess(contactoId, companyId);
+  if (!access.allowed) return access.result;
 
   const data = {
     tipo:          parsed.data.tipo,
@@ -286,7 +423,20 @@ export async function editarDireccion(
     es_principal:  parsed.data.es_principal,
   };
 
+  // REGLA CISO L3 — AuditLog: capturar estado previo
+  const before = await prisma.direccion.findUnique({ where: { id } });
+
   await prisma.$transaction(async (tx) => {
+    await tx.auditLog.create({
+      data: {
+        action: "UPDATE",
+        table_name: "direcciones",
+        record_id: contactoId,
+        old_data: before as unknown as Prisma.InputJsonValue,
+        new_data: { section: "direccion", ...data } as unknown as Prisma.InputJsonValue,
+      },
+    });
+
     if (data.es_principal) {
       await tx.direccion.updateMany({
         where: { contactoId, es_principal: true, NOT: { id } },
@@ -296,7 +446,7 @@ export async function editarDireccion(
     await tx.direccion.update({ where: { id }, data });
   });
   revalidatePath(`/contactos/${contactoId}`);
-  return { success: true };
+  return { ok: true };
 }
 
 // ─── editarCanal ──────────────────────────────────────────────────────────────
@@ -318,8 +468,13 @@ export async function editarCanal(
 
   const parsed = CanalUpdateSchema.safeParse(raw);
   if (!parsed.success) {
-    return { success: false, errors: parsed.error.flatten().fieldErrors };
+    return { ok: false, error: "Errores de validación", fieldErrors: parsed.error.flatten().fieldErrors };
   }
+
+  // REGLA CISO — Protección multitenant
+  const companyId = formData.get("companyId")?.toString() || null;
+  const access = await assertTenantAccess(contactoId, companyId);
+  if (!access.allowed) return access.result;
 
   const data = {
     tipo:         parsed.data.tipo,
@@ -330,7 +485,20 @@ export async function editarCanal(
     es_favorito:  parsed.data.es_favorito,
   };
 
+  // REGLA CISO L3 — AuditLog: capturar estado previo
+  const before = await prisma.canalComunicacion.findUnique({ where: { id } });
+
   await prisma.$transaction(async (tx) => {
+    await tx.auditLog.create({
+      data: {
+        action: "UPDATE",
+        table_name: "canales_comunicacion",
+        record_id: contactoId,
+        old_data: before as unknown as Prisma.InputJsonValue,
+        new_data: { section: "canal", ...data } as unknown as Prisma.InputJsonValue,
+      },
+    });
+
     if (data.es_principal) {
       await tx.canalComunicacion.updateMany({
         where: { contactoId, es_principal: true, NOT: { id } },
@@ -357,5 +525,5 @@ export async function editarCanal(
     }
   });
   revalidatePath(`/contactos/${contactoId}`);
-  return { success: true };
+  return { ok: true };
 }

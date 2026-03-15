@@ -163,6 +163,73 @@ describe("planBlueprintCarpetas", () => {
 
     expect(plan.subcarpetas).toEqual(SUBCARPETAS_DEFAULT);
   });
+
+  // ─── Periodicidad: PUNTUAL vs ANUAL ───────────────────────────────────────
+
+  it("Servicio PUNTUAL: subcarpetas cuelgan directamente del servicio (sin carpeta año)", () => {
+    const plan = planBlueprintCarpetas({
+      etiquetaId: "e-irpf",
+      etiquetaNombre: "IRPF",
+      categoriaNombre: "Servicio",
+      blueprint: ["Borrador", "Declaración"],
+      parentEtiquetaId: null,
+      existingCarpetaEtiquetaIds: new Set(),
+      existingCarpetasByEtiqueta: new Map(),
+      periodicidad: "PUNTUAL",
+    });
+
+    expect(plan.skip).toBe(false);
+    expect(plan.yearFolder).toBeNull();
+    expect(plan.subcarpetas).toEqual(["Borrador", "Declaración"]);
+  });
+
+  it("Servicio ANUAL: genera carpeta de año actual entre servicio y subcarpetas", () => {
+    const currentYear = new Date().getFullYear().toString();
+    const plan = planBlueprintCarpetas({
+      etiquetaId: "e-irpf",
+      etiquetaNombre: "IRPF",
+      categoriaNombre: "Servicio",
+      blueprint: ["Borrador", "Declaración"],
+      parentEtiquetaId: null,
+      existingCarpetaEtiquetaIds: new Set(),
+      existingCarpetasByEtiqueta: new Map(),
+      periodicidad: "ANUAL",
+    });
+
+    expect(plan.skip).toBe(false);
+    expect(plan.yearFolder).toBe(currentYear);
+    expect(plan.subcarpetas).toEqual(["Borrador", "Declaración"]);
+  });
+
+  it("Servicio sin periodicidad explícita (undefined) se comporta como PUNTUAL", () => {
+    const plan = planBlueprintCarpetas({
+      etiquetaId: "e-svc",
+      etiquetaNombre: "Consulta",
+      categoriaNombre: "Servicio",
+      blueprint: null,
+      parentEtiquetaId: null,
+      existingCarpetaEtiquetaIds: new Set(),
+      existingCarpetasByEtiqueta: new Map(),
+    });
+
+    expect(plan.yearFolder).toBeNull();
+  });
+
+  it("Departamento ignora periodicidad (nunca genera yearFolder)", () => {
+    const plan = planBlueprintCarpetas({
+      etiquetaId: "e-dept",
+      etiquetaNombre: "Fiscal",
+      categoriaNombre: "Departamento",
+      blueprint: null,
+      parentEtiquetaId: null,
+      existingCarpetaEtiquetaIds: new Set(),
+      existingCarpetasByEtiqueta: new Map(),
+      periodicidad: "ANUAL",
+    });
+
+    expect(plan.yearFolder).toBeNull();
+    expect(plan.subcarpetas).toHaveLength(0);
+  });
 });
 
 // ─── scopeToCompanyId ────────────────────────────────────────────────────────

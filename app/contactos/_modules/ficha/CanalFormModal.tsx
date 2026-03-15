@@ -10,6 +10,7 @@ import { useRef, useEffect, useState, useActionState } from "react";
 import { useRouter } from "next/navigation";
 import { Phone, Plus, X } from "lucide-react";
 import { crearCanal, editarCanal } from "@/lib/modules/entidades/actions/filiacion.actions";
+import { useTenant } from "@/lib/context/TenantContext";
 
 // ─── Tipo para datos de edición ───────────────────────────────────────────────
 
@@ -25,17 +26,7 @@ export type CanalInitialData = {
 
 // ─── Helpers de formateo ──────────────────────────────────────────────────────
 
-function applyTitleCase(e: React.ChangeEvent<HTMLInputElement>) {
-  const pos = e.target.selectionStart;
-  e.target.value = e.target.value.replace(/(?:^|\s)\S/g, (c) => c.toUpperCase());
-  e.target.setSelectionRange(pos, pos);
-}
-
-function applyUpperCase(e: React.ChangeEvent<HTMLInputElement>) {
-  const pos = e.target.selectionStart;
-  e.target.value = e.target.value.toUpperCase();
-  e.target.setSelectionRange(pos, pos);
-}
+import { applyUpperCase, inputCls, labelCls } from "@/lib/utils/formHelpers";
 
 // ─── Placeholder dinámico según tipo de canal ─────────────────────────────────
 
@@ -48,18 +39,6 @@ const CANAL_PLACEHOLDERS: Record<string, string> = {
   FAX:       "+34 91 000 0000",
   OTRA:      "Valor del canal",
 };
-
-// ─── Helpers de estilo ────────────────────────────────────────────────────────
-
-const inputCls = (hasError: boolean) =>
-  `w-full rounded-lg border px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 bg-zinc-800 focus:outline-none transition-colors ${
-    hasError
-      ? "border-red-500/70 focus:border-red-400"
-      : "border-zinc-700 focus:border-zinc-500"
-  }`;
-
-const labelCls =
-  "block text-[11px] font-semibold uppercase tracking-wider text-zinc-500 mb-1";
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 
@@ -75,6 +54,7 @@ export function CanalFormModal({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const formRef   = useRef<HTMLFormElement>(null);
   const router    = useRouter();
+  const { tenant } = useTenant();
 
   const action = initialData
     ? editarCanal.bind(null, initialData.id, contactoId)
@@ -103,7 +83,7 @@ export function CanalFormModal({
 
   // Éxito: cerrar + refrescar RSC
   useEffect(() => {
-    if (state?.success === true) {
+    if (state?.ok === true) {
       dialogRef.current?.close();
       router.refresh();
     }
@@ -121,7 +101,7 @@ export function CanalFormModal({
     dialogRef.current?.close();
   }
 
-  const errors  = showErrors && state?.success === false ? state.errors : {};
+  const errors  = showErrors && state?.ok === false ? (state.fieldErrors ?? {}) : {};
   const isEdit  = !!initialData;
 
   return (
@@ -142,7 +122,7 @@ export function CanalFormModal({
       <dialog
         ref={dialogRef}
         onClick={(e) => { if (e.target === e.currentTarget) closeDialog(); }}
-        className="m-auto w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-0 shadow-2xl backdrop:bg-black/70"
+        className="m-auto w-full max-w-md overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 p-0 shadow-2xl backdrop:bg-black/70"
       >
         <form
           ref={formRef}
@@ -150,6 +130,7 @@ export function CanalFormModal({
           onSubmit={() => setShowErrors(true)}
         >
           <input type="hidden" name="contactoId" value={contactoId} />
+          <input type="hidden" name="companyId" value={tenant.id} />
 
           {/* Cabecera dinámica */}
           <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">

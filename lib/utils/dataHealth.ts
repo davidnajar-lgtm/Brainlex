@@ -49,3 +49,25 @@ export function dataHealthColor(score: number): string {
   if (score >= 50) return "#f59e0b"; // amber-500
   return "#ef4444";                   // red-500
 }
+
+/** Devuelve lista legible de campos que faltan por completar. */
+export function getMissingFields(c: ContactoHealthFields): string[] {
+  const missing: string[] = [];
+  if (!c.fiscal_id?.trim())        missing.push("NIF / CIF");
+
+  const hasIdentidad =
+    (c.nombre?.trim() || c.apellido1?.trim() || c.razon_social?.trim()) != null &&
+    (c.nombre?.trim() || c.apellido1?.trim() || c.razon_social?.trim()) !== "";
+  if (!hasIdentidad)               missing.push("Nombre / Razón Social");
+
+  if (!c.telefono_movil?.trim())   missing.push("Teléfono Móvil");
+  if (!c.email_principal?.trim())  missing.push("Email");
+  if (!c.cnae?.trim())             missing.push("CNAE");
+  if (!c.iae?.trim())              missing.push("IAE");
+  return missing;
+}
+
+/** Indica si un contacto tiene los datos mínimos para facturar (NIF). */
+export function isFiscalReady(c: ContactoHealthFields): boolean {
+  return !!c.fiscal_id?.trim();
+}

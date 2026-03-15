@@ -16,16 +16,19 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   MapPin, Phone, Mail, Globe, Link2, Star,
-  ExternalLink, Smartphone,
+  ExternalLink, Smartphone, Pencil, AlertTriangle, HelpCircle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ContactoTipo, Prisma } from "@prisma/client";
 import { toggleFavoritePhone } from "@/lib/modules/entidades/actions/contactos.actions";
 
-import { DireccionFormModal }  from "./DireccionFormModal";
-import { CanalFormModal }      from "./CanalFormModal";
-import { DireccionCardActions } from "./DireccionCardActions";
-import { CanalCardActions }    from "./CanalCardActions";
+import { DireccionFormModal }       from "./DireccionFormModal";
+import { CanalFormModal }           from "./CanalFormModal";
+import { DireccionCardActions }     from "./DireccionCardActions";
+import { CanalCardActions }         from "./CanalCardActions";
+import { IdentityEditModal }        from "./IdentityEditModal";
+import { DirectChannelsEditModal }  from "./DirectChannelsEditModal";
+import type { DetectedAddress }     from "@/app/contactos/_modules/shared/CompanyAutocompleteInput";
 
 import {
   getContactosLabels,
@@ -78,6 +81,17 @@ function SectionHeader({
       <h3 className="text-xs font-semibold text-zinc-300">{title}</h3>
       {actionSlot}
     </div>
+  );
+}
+
+function HelpTip({ text }: { text: string }) {
+  return (
+    <span
+      className="inline-flex cursor-help items-center"
+      title={text}
+    >
+      <HelpCircle className="h-3 w-3 text-zinc-600 transition-colors hover:text-zinc-400" />
+    </span>
   );
 }
 
@@ -169,16 +183,31 @@ export function TabFiliacionClient({
   contacto,
   displayName,
   locale = "es",
+  entityActionsSlot,
+  cloneButtonSlot,
 }: {
   contacto:    ContactoFull;
   displayName: string;
   /** Idioma de la interfaz. Preparado para next-intl; por defecto "es". */
   locale?:     AppLocale;
+  /** EntityActions RSC, pasado como slot desde la page. */
+  entityActionsSlot?: React.ReactNode;
+  /** CloneStructureButton RSC, pasado como slot desde la page. */
+  cloneButtonSlot?:   React.ReactNode;
 }) {
   const t = getContactosLabels(locale);
 
   const [direccionEditando, setDireccionEditando] = useState<DireccionItem | null>(null);
   const [canalEditando,     setCanalEditando]     = useState<CanalItem | null>(null);
+
+  // ── Modales de edición de identidad y canales directos ─────────────────────
+  const [showIdentityEdit, setShowIdentityEdit]     = useState(false);
+  const [showChannelsEdit, setShowChannelsEdit]     = useState(false);
+
+  // Cross-modal: datos de Google Places para pre-rellenar direcciones/canales
+  const [detectedAddress, setDetectedAddress]       = useState<DetectedAddress | null>(null);
+  const [detectedPhone, setDetectedPhone]           = useState<{ value: string; type: "movil" | "fijo" } | null>(null);
+  const [detectedWebsite, setDetectedWebsite]       = useState<string | null>(null);
 
   // ── Campos directos del contacto que forman los "Canales de Contacto" ──────
   const directChannels = buildDirectChannels(contacto, t);
@@ -187,12 +216,34 @@ export function TabFiliacionClient({
     <div className="flex flex-col gap-3">
 
       {/* ══════════════════════════════════════════════════════════════════════
+          Barra de Acciones — Imprimir, PDF, Email, Copiar estructura
+          Posición: entre las pestañas y el primer bloque de contenido.
+          ══════════════════════════════════════════════════════════════════════ */}
+      {(entityActionsSlot || cloneButtonSlot) && (
+        <div className="print:hidden flex flex-wrap items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/30 px-3 py-2">
+          {entityActionsSlot}
+          {cloneButtonSlot}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
           Bloque 1 — Identidad y Datos Base (solo lectura)
           ══════════════════════════════════════════════════════════════════════ */}
       <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2.5">
-        <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-          {t.sections.identidad}
-        </h3>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            {t.sections.identidad}
+          </h3>
+          <button
+            type="button"
+            onClick={() => setShowIdentityEdit(true)}
+            className="rounded p-1 text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-orange-400"
+            aria-label="Editar identidad"
+            title="Editar identidad"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        </div>
         <dl className="grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2">
 
           {/* Tipo */}
@@ -240,18 +291,53 @@ export function TabFiliacionClient({
           )}
 
         </dl>
+
+        {/* Badge "Sin NIF" — visible cuando el contacto no tiene datos fiscales */}
+        {!contacto.fiscal_id && (
+          <button
+            type="button"
+            onClick={() => setShowIdentityEdit(true)}
+            title={t.help.sinNifExplicacion}
+            className="mt-2 flex items-center gap-1.5 rounded-md bg-amber-100 px-2.5 py-1.5 text-[11px] font-medium text-amber-800 transition-colors hover:bg-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:hover:bg-amber-950/40"
+          >
+            <AlertTriangle className="h-3 w-3 shrink-0" />
+            Sin datos fiscales — pulsa para completar NIF
+          </button>
+        )}
       </section>
 
       {/* ══════════════════════════════════════════════════════════════════════
-          Bloque 2 — Canales de Contacto (campos directos del contacto)
-          Auto-labels vía i18n; read-only (edición en /editar)
+          Bloque 2 — Canales de Comunicación (campos directos + canales CRUD)
+          Fusión de canales directos del contacto + canales adicionales.
           ══════════════════════════════════════════════════════════════════════ */}
       <section>
-        <SectionHeader title={t.sections.canalesContacto} />
-        {directChannels.length === 0 ? (
-          <EmptyState message={t.emptyStates.noCanalesDirectos} />
-        ) : (
-          <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <SectionHeader
+          title={t.sections.canalesContacto}
+          actionSlot={
+            <div className="flex items-center gap-1">
+              <HelpTip text={t.help.telefonoFormato} />
+              <button
+                type="button"
+                onClick={() => setShowChannelsEdit(true)}
+                className="rounded p-1 text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-orange-400"
+                aria-label="Editar canales directos"
+                title="Editar canales directos"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <CanalFormModal
+                key={canalEditando?.id ?? "create-canal"}
+                contactoId={contacto.id}
+                initialData={canalEditando ?? undefined}
+                onClose={() => setCanalEditando(null)}
+              />
+            </div>
+          }
+        />
+
+        {/* Canales directos (campos fijos del contacto) */}
+        {directChannels.length > 0 && (
+          <dl className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
             {directChannels.map(({ key, icon, label, preferido, node }) => (
               <DirectChannelCard
                 key={key}
@@ -264,6 +350,61 @@ export function TabFiliacionClient({
             ))}
           </dl>
         )}
+
+        {/* Canales adicionales (listado compacto — CRUD) */}
+        {contacto.canales.length > 0 && (
+          <div className="rounded-lg border border-zinc-700/60 bg-zinc-800/50 overflow-hidden">
+            {contacto.canales.map((canal, idx) => {
+              const Icon = canalIcon(canal.tipo);
+              return (
+                <div
+                  key={canal.id}
+                  className={`group flex items-center gap-2 px-3 py-1.5 transition-colors hover:bg-zinc-700/40 ${
+                    idx > 0 ? "border-t border-zinc-700/40" : ""
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5 shrink-0 text-zinc-600" />
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-600 w-20 shrink-0">
+                    {t.canalTipo[canal.tipo] ?? canal.tipo}
+                    {canal.tipo === "TELEFONO" && canal.subtipo && (
+                      <span className="ml-0.5 text-zinc-700">· {canal.subtipo}</span>
+                    )}
+                  </span>
+                  {canal.tipo === "TELEFONO" ? (
+                    <FavoriteStarButton
+                      canalId={canal.id}
+                      contactoId={contacto.id}
+                      isFavorito={canal.es_favorito}
+                    />
+                  ) : canal.es_principal ? (
+                    <Star className="h-3 w-3 shrink-0 text-amber-400" />
+                  ) : (
+                    <span className="w-[18px] shrink-0" />
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">
+                    {canal.valor}
+                  </span>
+                  {canal.etiqueta && (
+                    <span className="hidden shrink-0 text-[10px] text-zinc-600 sm:inline">
+                      {canal.etiqueta}
+                    </span>
+                  )}
+                  <span className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <CanalCardActions
+                      id={canal.id}
+                      contactoId={contacto.id}
+                      onEdit={() => setCanalEditando(canal)}
+                    />
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {directChannels.length === 0 && contacto.canales.length === 0 && (
+          <EmptyState message={t.emptyStates.noCanalesDirectos} />
+        )}
       </section>
 
       {/* ══════════════════════════════════════════════════════════════════════
@@ -273,52 +414,58 @@ export function TabFiliacionClient({
         <SectionHeader
           title={t.sections.direcciones}
           actionSlot={
-            <DireccionFormModal
-              key={direccionEditando?.id ?? "create-dir"}
-              contactoId={contacto.id}
-              initialData={direccionEditando ?? undefined}
-              onClose={() => setDireccionEditando(null)}
-            />
+            <div className="flex items-center gap-1">
+              <HelpTip text={t.help.direccionTipo} />
+              <DireccionFormModal
+                key={direccionEditando?.id ?? "create-dir"}
+                contactoId={contacto.id}
+                initialData={direccionEditando ?? undefined}
+                onClose={() => setDireccionEditando(null)}
+              />
+            </div>
           }
         />
         {contacto.direcciones.length === 0 ? (
           <EmptyState message={t.emptyStates.noDirecciones} />
         ) : (
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-            {contacto.direcciones.map((dir) => (
+          <div className="rounded-lg border border-zinc-700/60 bg-zinc-800/50 overflow-hidden">
+            {contacto.direcciones.map((dir, idx) => (
               <div
                 key={dir.id}
-                className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2"
+                className={`group flex items-start gap-2 px-3 py-2 transition-colors hover:bg-zinc-700/40 ${
+                  idx > 0 ? "border-t border-zinc-700/40" : ""
+                }`}
               >
-                <div className="mb-1 flex items-center justify-between gap-2">
+                <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-600" />
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
-                    <MapPin className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
                     <span
                       className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${tipoDireccionClasses(dir.tipo)}`}
                     >
                       {t.direccionTipo[dir.tipo] ?? dir.tipo}
                     </span>
                     {dir.es_principal && (
-                      <Star className="h-3.5 w-3.5 text-amber-400" />
+                      <Star className="h-3 w-3 text-amber-400" />
+                    )}
+                    {dir.etiqueta && (
+                      <span className="text-[10px] text-zinc-600">{dir.etiqueta}</span>
                     )}
                   </div>
+                  <p className="mt-0.5 text-xs text-zinc-300">{dir.calle}</p>
+                  {dir.calle_2 && (
+                    <p className="text-[11px] text-zinc-500">{dir.calle_2}</p>
+                  )}
+                  <p className="text-[11px] text-zinc-500">
+                    {[dir.codigo_postal, dir.ciudad, dir.provincia, dir.pais].filter(Boolean).join(" · ")}
+                  </p>
+                </div>
+                <span className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                   <DireccionCardActions
                     id={dir.id}
                     contactoId={contacto.id}
                     onEdit={() => setDireccionEditando(dir)}
                   />
-                </div>
-                {dir.etiqueta && (
-                  <p className="mb-1 text-xs font-medium text-zinc-400">{dir.etiqueta}</p>
-                )}
-                <p className="text-[13px] font-medium text-zinc-200">{dir.calle}</p>
-                {dir.calle_2 && (
-                  <p className="text-[12px] text-zinc-500">{dir.calle_2}</p>
-                )}
-                <p className="text-[11px] text-zinc-500">
-                  {[dir.codigo_postal, dir.ciudad, dir.provincia].filter(Boolean).join(" · ")}
-                </p>
-                <p className="text-[11px] text-zinc-600">{dir.pais}</p>
+                </span>
               </div>
             ))}
           </div>
@@ -326,66 +473,68 @@ export function TabFiliacionClient({
       </section>
 
       {/* ══════════════════════════════════════════════════════════════════════
-          Bloque 4 — Canales Adicionales (CRUD · tabla canales)
+          Bloque 4 — Notas
           ══════════════════════════════════════════════════════════════════════ */}
-      <section>
-        <SectionHeader
-          title={t.sections.canalesAdicionales}
-          actionSlot={
-            <CanalFormModal
-              key={canalEditando?.id ?? "create-canal"}
-              contactoId={contacto.id}
-              initialData={canalEditando ?? undefined}
-              onClose={() => setCanalEditando(null)}
-            />
-          }
-        />
-        {contacto.canales.length === 0 ? (
-          <EmptyState message={t.emptyStates.noCanales} />
-        ) : (
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-            {contacto.canales.map((canal) => {
-              const Icon = canalIcon(canal.tipo);
-              return (
-                <div
-                  key={canal.id}
-                  className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2"
-                >
-                  <div className="mb-1 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5">
-                      <Icon className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
-                        {t.canalTipo[canal.tipo] ?? canal.tipo}
-                        {canal.tipo === "TELEFONO" && canal.subtipo && (
-                          <span className="ml-1 text-zinc-700">· {canal.subtipo}</span>
-                        )}
-                      </span>
-                      {canal.tipo === "TELEFONO" ? (
-                        <FavoriteStarButton
-                          canalId={canal.id}
-                          contactoId={contacto.id}
-                          isFavorito={canal.es_favorito}
-                        />
-                      ) : canal.es_principal ? (
-                        <Star className="h-3.5 w-3.5 text-amber-400" />
-                      ) : null}
-                    </div>
-                    <CanalCardActions
-                      id={canal.id}
-                      contactoId={contacto.id}
-                      onEdit={() => setCanalEditando(canal)}
-                    />
-                  </div>
-                  <p className="break-all text-[13px] font-medium text-zinc-200">{canal.valor}</p>
-                  {canal.etiqueta && (
-                    <p className="mt-0.5 text-xs text-zinc-500">{canal.etiqueta}</p>
-                  )}
-                </div>
-              );
-            })}
+      {contacto.notas && (
+        <section>
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2.5">
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">Notas</p>
+            <p className="whitespace-pre-wrap text-xs leading-relaxed text-zinc-500">{contacto.notas}</p>
           </div>
-        )}
-      </section>
+        </section>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          Modales de edición (renderizados condicionalmente)
+          ══════════════════════════════════════════════════════════════════════ */}
+
+      {showIdentityEdit && (
+        <IdentityEditModal
+          contacto={{
+            id:             contacto.id,
+            tipo:           contacto.tipo,
+            nombre:         contacto.nombre,
+            apellido1:      contacto.apellido1,
+            apellido2:      contacto.apellido2,
+            razon_social:   contacto.razon_social,
+            tipo_sociedad:  contacto.tipo_sociedad,
+            fiscal_id_tipo: contacto.fiscal_id_tipo,
+            fiscal_id:      contacto.fiscal_id,
+            notas:          contacto.notas,
+          }}
+          onClose={() => setShowIdentityEdit(false)}
+          onAddressDetected={(addr) => {
+            setDetectedAddress(addr);
+          }}
+          onPhoneDetected={(phone, type) => {
+            setDetectedPhone({ value: phone, type });
+          }}
+          onWebsiteDetected={(url) => {
+            setDetectedWebsite(url);
+          }}
+        />
+      )}
+
+      {showChannelsEdit && (
+        <DirectChannelsEditModal
+          contacto={{
+            id:              contacto.id,
+            email_principal: contacto.email_principal,
+            telefono_movil:  contacto.telefono_movil,
+            telefono_fijo:   contacto.telefono_fijo,
+            website_url:     contacto.website_url,
+            linkedin_url:    contacto.linkedin_url,
+            canal_preferido: contacto.canal_preferido,
+          }}
+          onClose={() => {
+            setShowChannelsEdit(false);
+            setDetectedPhone(null);
+            setDetectedWebsite(null);
+          }}
+          prefillPhone={detectedPhone}
+          prefillWebsite={detectedWebsite}
+        />
+      )}
 
     </div>
   );

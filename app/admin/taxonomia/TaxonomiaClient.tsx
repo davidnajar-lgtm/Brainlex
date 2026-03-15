@@ -16,7 +16,7 @@
 // ============================================================================
 
 import { useState, useTransition } from "react";
-import { Plus, Tag, Folder, ChevronDown, ChevronRight, Check, X, Pencil, Lock, Trash2, FolderTree, Globe, Building2, AlertTriangle, ShieldAlert, Eye, EyeOff, RotateCcw, GripVertical, Shield } from "lucide-react";
+import { Plus, Tag, Folder, ChevronDown, ChevronRight, Check, X, Pencil, Lock, Trash2, FolderTree, Globe, Building2, AlertTriangle, ShieldAlert, Eye, EyeOff, RotateCcw, GripVertical, Shield, CalendarDays, CalendarX } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   createEtiqueta,
@@ -30,6 +30,7 @@ import {
   liberateContentTags,
   getCategoriasWithArchived,
   restoreEtiqueta,
+  updateEtiquetaPeriodicidad,
 } from "@/lib/modules/entidades/actions/etiquetas.actions";
 import type { CategoriaConEtiquetas } from "@/lib/modules/entidades/repositories/etiqueta.repository";
 import type { Etiqueta } from "@prisma/client";
@@ -513,11 +514,13 @@ function CategoriaCard({
   const [newColor,        setNewColor]        = useState("#6b7280");
   const [newParentId,     setNewParentId]     = useState<string | null>(null);
   const [newEsExpediente, setNewEsExpediente] = useState(false);
+  const [newPeriodicidad, setNewPeriodicidad] = useState("PUNTUAL");
   const [editingId,       setEditingId]       = useState<string | null>(null);
   const [editName,        setEditName]        = useState("");
   const [editColor,       setEditColor]       = useState("#6b7280");
   const [editParentId,    setEditParentId]    = useState<string | null>(null);
   const [editEsExpediente, setEditEsExpediente] = useState(false);
+  const [editPeriodicidad, setEditPeriodicidad] = useState("PUNTUAL");
   const [blueprintEditId, setBlueprintEditId] = useState<string | null>(null);
   const [scopeEditId,     setScopeEditId]     = useState<string | null>(null);
   const [usageCounts,     setUsageCounts]     = useState<Record<string, number>>({});
@@ -563,12 +566,13 @@ function CategoriaCard({
   }
   function handleDragEnd() { setDragId(null); setDragOverId(null); }
 
-  function startEdit(e: { id: string; nombre: string; color: string; parent_id?: string | null; es_expediente?: boolean }) {
+  function startEdit(e: { id: string; nombre: string; color: string; parent_id?: string | null; es_expediente?: boolean; periodicidad?: string }) {
     setEditingId(e.id);
     setEditName(e.nombre);
     setEditColor(e.color);
     setEditParentId(e.parent_id ?? null);
     setEditEsExpediente(e.es_expediente ?? false);
+    setEditPeriodicidad((e.periodicidad as string) ?? "PUNTUAL");
   }
 
   function cancelEdit() {
@@ -577,6 +581,7 @@ function CategoriaCard({
     setEditColor("#6b7280");
     setEditParentId(null);
     setEditEsExpediente(false);
+    setEditPeriodicidad("PUNTUAL");
   }
 
   function handleUpdateEtiqueta(id: string) {
@@ -607,11 +612,15 @@ function CategoriaCard({
           const { updateEtiquetaExpediente } = await import("@/lib/modules/entidades/actions/etiquetas.actions");
           await updateEtiquetaExpediente(id, editEsExpediente);
         }
+        // Actualizar periodicidad si cambió
+        if ((currentEtq as typeof currentEtq & { periodicidad?: string })?.periodicidad !== editPeriodicidad) {
+          await updateEtiquetaPeriodicidad(id, editPeriodicidad);
+        }
       }
       onEtiquetaUpdated(id, {
         nombre: editName.trim(),
         color: editColor,
-        ...(isServicio ? { parent_id: editParentId, es_expediente: editEsExpediente } : {}),
+        ...(isServicio ? { parent_id: editParentId, es_expediente: editEsExpediente, periodicidad: editPeriodicidad } : {}),
       });
       cancelEdit();
     });
@@ -629,21 +638,27 @@ function CategoriaCard({
     fd.set("categoria_id", cat.id);
     if (newParentId) fd.set("parent_id", newParentId);
     if (isServicio && newEsExpediente) fd.set("es_expediente", "true");
+    if (isServicio) fd.set("periodicidad", newPeriodicidad);
     startTransition(async () => {
       const res = await createEtiqueta(null, fd);
       if (!res.ok) { setError(res.error); return; }
+      // Actualizar periodicidad si no es PUNTUAL (default)
+      if (isServicio && newPeriodicidad === "ANUAL") {
+        await updateEtiquetaPeriodicidad(res.data.id, "ANUAL");
+      }
       onEtiquetaCreated({
         id: res.data.id, nombre: newName.trim(), color: newColor,
         categoria_id: cat.id, es_sistema: false, activo: true,
         scope: "GLOBAL" as const, blueprint: null,
         parent_id: newParentId, es_expediente: newEsExpediente,
-        solo_super_admin: false,
+        solo_super_admin: false, periodicidad: newPeriodicidad,
         created_at: new Date(), updated_at: new Date(),
-      });
+      } as Etiqueta);
       setNewName("");
       setNewColor("#6b7280");
       setNewParentId(null);
       setNewEsExpediente(false);
+      setNewPeriodicidad("PUNTUAL");
       setShowNewEtiqueta(false);
     });
   }
@@ -710,6 +725,36 @@ function CategoriaCard({
               />
               <span className="text-[11px] text-zinc-400">Es de tipo Expediente</span>
             </label>
+          )}
+          {isServicio && (
+            <div className="flex items-center gap-2">
+              <CalendarDays className="h-3.5 w-3.5 text-cyan-500 shrink-0" />
+              <span className="text-[11px] text-zinc-400 shrink-0">Naturaleza:</span>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => setEditPeriodicidad("PUNTUAL")}
+                  className={`rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
+                    editPeriodicidad === "PUNTUAL"
+                      ? "border-cyan-500/50 bg-cyan-500/15 text-cyan-400"
+                      : "border-zinc-700 bg-zinc-800/60 text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  Puntual
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditPeriodicidad("ANUAL")}
+                  className={`rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
+                    editPeriodicidad === "ANUAL"
+                      ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-400"
+                      : "border-zinc-700 bg-zinc-800/60 text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  Anual
+                </button>
+              </div>
+            </div>
           )}
           <div className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800 px-2 py-1">
             <input type="color" value={editColor} onChange={(ev) => setEditColor(ev.target.value)}
@@ -799,6 +844,16 @@ function CategoriaCard({
         {e.es_expediente && (
           <span className="inline-flex items-center gap-0.5 rounded-sm bg-cyan-500/10 px-1 py-[1px] text-[8px] font-bold uppercase tracking-wider text-cyan-500/70">
             EXP
+          </span>
+        )}
+        {/* Periodicidad badge — solo ANUAL es visible (PUNTUAL es default implícito) */}
+        {isServicio && (e as Etiqueta & { periodicidad?: string }).periodicidad === "ANUAL" && (
+          <span
+            className="inline-flex items-center gap-0.5 rounded-sm bg-emerald-500/10 px-1 py-[1px] text-[8px] font-bold uppercase tracking-wider text-emerald-500/70"
+            title="Servicio recurrente: genera carpeta de año (ej. 2026) con blueprint dentro"
+          >
+            <CalendarDays className="h-2 w-2" />
+            ANUAL
           </span>
         )}
         {/* @Security-CISO: badge + toggle de confidencialidad */}
@@ -1046,6 +1101,36 @@ function CategoriaCard({
                   <span className="text-[11px] text-zinc-400">Es de tipo Expediente</span>
                 </label>
               )}
+              {isServicio && (
+                <div className="flex items-center gap-2">
+                  <CalendarDays className="h-3.5 w-3.5 text-cyan-500 shrink-0" />
+                  <span className="text-[11px] text-zinc-400 shrink-0">Naturaleza del servicio:</span>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setNewPeriodicidad("PUNTUAL")}
+                      className={`rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
+                        newPeriodicidad === "PUNTUAL"
+                          ? "border-cyan-500/50 bg-cyan-500/15 text-cyan-400"
+                          : "border-zinc-700 bg-zinc-800/60 text-zinc-500 hover:text-zinc-300"
+                      }`}
+                    >
+                      Puntual
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewPeriodicidad("ANUAL")}
+                      className={`rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
+                        newPeriodicidad === "ANUAL"
+                          ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-400"
+                          : "border-zinc-700 bg-zinc-800/60 text-zinc-500 hover:text-zinc-300"
+                      }`}
+                    >
+                      Anual
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <input
                   type="color"
@@ -1059,14 +1144,14 @@ function CategoriaCard({
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder={isServicio ? "Nombre del servicio" : "Nombre de la etiqueta"}
                   className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-600 outline-none focus:border-orange-500/60"
-                  onKeyDown={(e) => { if (e.key === "Enter") handleCreateEtiqueta(); if (e.key === "Escape") { setShowNewEtiqueta(false); setNewName(""); setNewParentId(null); setNewEsExpediente(false); } }}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleCreateEtiqueta(); if (e.key === "Escape") { setShowNewEtiqueta(false); setNewName(""); setNewParentId(null); setNewEsExpediente(false); setNewPeriodicidad("PUNTUAL"); } }}
                   autoFocus
                 />
                 <button onClick={handleCreateEtiqueta} disabled={!newName.trim() || (isServicio && !newParentId) || isPending}
                   className="rounded-lg bg-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-600 disabled:opacity-50">
                   <Check className="h-3 w-3" />
                 </button>
-                <button onClick={() => { setShowNewEtiqueta(false); setNewName(""); setNewParentId(null); setNewEsExpediente(false); }}
+                <button onClick={() => { setShowNewEtiqueta(false); setNewName(""); setNewParentId(null); setNewEsExpediente(false); setNewPeriodicidad("PUNTUAL"); }}
                   className="rounded-lg border border-zinc-700 px-2 py-1.5 text-xs text-zinc-500 hover:text-zinc-300">
                   <X className="h-3 w-3" />
                 </button>

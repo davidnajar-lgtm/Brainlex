@@ -25,6 +25,7 @@ import {
   Check,
 } from "lucide-react";
 import { copyEmailsToClipboard } from "@/lib/modules/entidades/services/export.service";
+import type { Contacto } from "@prisma/client";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -33,11 +34,13 @@ interface ExportDropdownProps {
   emails: string[];
   /** Número de registros filtrados (para tooltip). */
   count?: number;
+  /** Contactos filtrados para exportación CSV. */
+  contactos?: Contacto[];
 }
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 
-export function ExportDropdown({ emails, count }: ExportDropdownProps) {
+export function ExportDropdown({ emails, count, contactos = [] }: ExportDropdownProps) {
   const [open, setOpen]     = useState(false);
   const [copied, setCopied] = useState(false);
   const ref                 = useRef<HTMLDivElement>(null);
@@ -72,6 +75,43 @@ export function ExportDropdown({ emails, count }: ExportDropdownProps) {
     window.print();
   }
 
+  function handleDownloadCsv() {
+    if (contactos.length === 0) { setOpen(false); return; }
+    const headers = ["Nombre", "Tipo", "NIF/CIF", "Tipo ID Fiscal", "Email", "Teléfono Móvil", "Teléfono Fijo", "Web", "Estado"];
+    const rows = contactos.map((c) => {
+      const nombre = c.tipo === "PERSONA_JURIDICA"
+        ? (c.razon_social ?? "")
+        : [c.nombre, c.apellido1, c.apellido2].filter(Boolean).join(" ");
+      return [
+        nombre,
+        c.tipo === "PERSONA_JURIDICA" ? "Persona Jurídica" : "Persona Física",
+        c.fiscal_id ?? "",
+        c.fiscal_id_tipo ?? "",
+        c.email_principal ?? "",
+        c.telefono_movil ?? "",
+        c.telefono_fijo ?? "",
+        c.website_url ?? "",
+        c.status,
+      ];
+    });
+    const escapeCsv = (v: string) => {
+      if (v.includes(",") || v.includes('"') || v.includes("\n")) {
+        return `"${v.replace(/"/g, '""')}"`;
+      }
+      return v;
+    };
+    const csv = [headers, ...rows].map((r) => r.map(escapeCsv).join(",")).join("\n");
+    const bom = "\uFEFF";
+    const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `contactos_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setOpen(false);
+  }
+
   const validEmails = emails.filter((e) => e.trim().length > 0);
 
   return (
@@ -92,13 +132,13 @@ export function ExportDropdown({ emails, count }: ExportDropdownProps) {
         <div className="absolute right-0 z-50 mt-1.5 w-52 rounded-xl border border-zinc-700 bg-zinc-900 shadow-xl shadow-black/40">
           <div className="p-1">
 
-            {/* Excel — stub Fase 3 */}
+            {/* CSV — funcional */}
             <DropdownItem
               icon={<FileSpreadsheet className="h-3.5 w-3.5" />}
-              label="Descargar Excel (.xlsx)"
-              description="Disponible en Fase 3"
-              onClick={() => setOpen(false)}
-              muted
+              label="Descargar CSV"
+              description={contactos.length > 0 ? `${contactos.length} contacto${contactos.length !== 1 ? "s" : ""}` : "Sin datos en este filtro"}
+              onClick={contactos.length > 0 ? handleDownloadCsv : () => setOpen(false)}
+              muted={contactos.length === 0}
             />
 
             {/* Imprimir — funcional */}

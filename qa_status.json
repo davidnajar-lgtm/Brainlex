@@ -1,7 +1,93 @@
 {
-  "modules": {},
-  "last_run": "",
-  "overall_status": "PENDING",
+  "modules": {
+    "fase_a_security": {
+      "status": "APPROVED",
+      "date": "2026-03-14",
+      "findings": {
+        "C1_moveArchivo_crossTenant": "FIXED — source + target carpeta tenant validation added",
+        "C2_createCarpetaManual_crossTenant": "FIXED — parent carpeta tenant validation added",
+        "H7_filiacion_crossTenant": "FIXED — assertTenantAccess() guard on all 6 filiation actions + UI passes companyId"
+      },
+      "tests": {
+        "file": "tests/security/cross-tenant-guard.test.ts",
+        "total": 15,
+        "passed": 15,
+        "attack_vectors_covered": [
+          "LX cannot move archivo to LW carpeta",
+          "LW cannot move archivo from LX carpeta",
+          "LX cannot create subcarpeta in LW parent",
+          "LW cannot create subcarpeta in LX parent",
+          "LX cannot crear/editar/eliminar direccion of unlinked contacto",
+          "LX cannot crear/editar/eliminar canal of unlinked contacto"
+        ]
+      },
+      "total_test_suite": "202/202 green"
+    },
+    "fase_b_consistency": {
+      "status": "APPROVED",
+      "date": "2026-03-14",
+      "findings": {
+        "C3_result_pattern": "FIXED — filiacion.actions.ts normalized from { success, errors } to { ok, error, fieldErrors }",
+        "C4_try_catch": "FIXED — eliminarDireccion + eliminarCanal wrapped in try/catch, return ActionResult instead of void",
+        "H3_use_server": "ALREADY_OK — both etiquetas.actions.ts and relaciones.actions.ts already had 'use server' directive"
+      },
+      "ui_consumers_updated": [
+        "DireccionFormModal.tsx — state?.ok, state.fieldErrors",
+        "CanalFormModal.tsx — state?.ok, state.fieldErrors"
+      ],
+      "total_test_suite": "202/202 green"
+    },
+    "fase_c_cleanup": {
+      "status": "APPROVED",
+      "date": "2026-03-14",
+      "deleted": [
+        "EsClienteToggle.tsx — dead (replaced by RolesPanel)",
+        "EsPreClienteToggle.tsx — dead (replaced by RolesPanel)",
+        "CountryCombobox.tsx — duplicate of CountrySelectorField",
+        "TagSelector.tsx — dead (only comment references, 0 imports)"
+      ],
+      "refactored": [
+        "formHelpers.ts — extracted applyTitleCase, applyUpperCase, inputCls, labelCls from DireccionFormModal + CanalFormModal",
+        "badges.principal — removed unused i18n key from ES/EN/FR"
+      ],
+      "preserved": [
+        "buildDriveFolderTree() — used in 2 test files",
+        "drive-sync.service.ts — Fase 4 stub, legitimate placeholder",
+        "export.service.ts stubs — Fase 3 placeholder (generatePDF, etc.)",
+        "boveda i18n keys — preparatory for ZIP download UI"
+      ],
+      "total_test_suite": "202/202 green"
+    },
+    "fase_d_tests": {
+      "status": "APPROVED",
+      "date": "2026-03-14",
+      "findings": {
+        "buildCarpetaTree": "ALREADY_COVERED — 12 tests in tests/boveda/carpeta-tree.test.ts",
+        "server_actions": "NOT_TESTABLE_PURE — require Prisma/DB mocking (integration tests), deferred to dedicated test sprint",
+        "legalAgent": "NOT_TESTABLE_PURE — requires DB + AuditLog mocking, deferred"
+      },
+      "note": "Pure function coverage is complete. Server action tests require integration test infrastructure (Prisma mock or test DB).",
+      "total_test_suite": "202/202 green"
+    },
+    "fase_e_ux": {
+      "status": "APPROVED",
+      "date": "2026-03-14",
+      "fixes": [
+        "E1: IsActiveToggle — added error state + display (was silently failing)",
+        "E2: RolesPanel — added else { setError } to handleToggleCliente + handleTogglePrecliente",
+        "E3: DireccionCardActions + CanalCardActions — handle ActionResult, show error on failure",
+        "E4: aria-label added to all 4 icon-only buttons (edit/delete for direcciones + canales)"
+      ],
+      "remaining_ux_items": [
+        "i18n expansion (hardcoded Spanish in modals/buttons) — deferred to i18n sprint",
+        "Color contrast audit (zinc-600/700 on dark) — deferred to accessibility sprint",
+        "Loading spinners (opacity-only currently) — cosmetic, low priority"
+      ],
+      "total_test_suite": "202/202 green"
+    }
+  },
+  "last_run": "2026-03-14",
+  "overall_status": "APPROVED",
   "_schema_version": "1.0.0",
   "_description": "Estado de certificación QA por módulo. Gestionado exclusivamente por agents/qa/Auditor.ts.",
   "_rule": "Si overall_status es FAILED, el Agente Orquestador NO puede dar por finalizada la fase.",

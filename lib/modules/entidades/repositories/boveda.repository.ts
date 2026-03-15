@@ -52,7 +52,7 @@ export const carpetaRepository = {
     return prisma.carpeta.findUnique({
       where: { id },
       include: { archivos: true, etiqueta: true },
-    });
+    }) as Promise<(Carpeta & { archivos: Archivo[]; etiqueta: import("@prisma/client").Etiqueta | null }) | null>;
   },
 
   async create(data: Prisma.CarpetaCreateInput): Promise<Carpeta> {
@@ -121,9 +121,13 @@ export const carpetaRepository = {
    * Todas las carpetas de un contacto con etiqueta y parent de etiqueta.
    * Usado para descarga ZIP con filtrado de seguridad (solo_super_admin + herencia).
    */
-  async findByContactoWithSecurity(contactoId: string): Promise<CarpetaConEtiquetaSeguridad[]> {
+  async findByContactoWithSecurity(contactoId: string, companyId?: string | null): Promise<CarpetaConEtiquetaSeguridad[]> {
     return prisma.carpeta.findMany({
-      where: { contacto_id: contactoId },
+      where: {
+        contacto_id: contactoId,
+        // @Scope-Guard — tenant filtering: si se indica companyId, solo carpetas del tenant o globales
+        ...(companyId ? { OR: [{ company_id: companyId }, { company_id: null }] } : {}),
+      },
       include: {
         archivos: { orderBy: { nombre: "asc" } },
         etiqueta: { include: { parent: true } },
@@ -136,6 +140,14 @@ export const carpetaRepository = {
 // ─── Archivos ───────────────────────────────────────────────────────────────
 
 export const archivoRepository = {
+  /** Busca un archivo por ID, incluyendo la carpeta padre (para validación de tenant). */
+  async findById(id: string) {
+    return prisma.archivo.findUnique({
+      where: { id },
+      include: { carpeta: { select: { id: true, company_id: true, contacto_id: true } } },
+    });
+  },
+
   async findByCarpeta(carpetaId: string): Promise<Archivo[]> {
     return prisma.archivo.findMany({
       where: { carpeta_id: carpetaId },
